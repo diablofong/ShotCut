@@ -2,5 +2,10 @@ fastapi==0.115.0
 uvicorn==0.30.0
 python-multipart==0.0.9
 ffmpeg-python==0.2.0
-aiosqlite==0.20.0
 pydantic==2.9.0
+sqlalchemy[asyncio]==2.0.35
+asyncmy==0.2.9
+alembic==1.13.3
+yt-dlp>=2024.1.0
+librosa==0.10.2
+scipy==1.14.1
