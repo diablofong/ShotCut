@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 影片檔案（不追蹤大型媒體檔）
+uploads/
+clips/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+
+# 資料庫
+*.db
+*.sqlite3
+
+# 環境變數
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+
+# Serena
+.serena/
+
+# Build
+frontend/dist/
