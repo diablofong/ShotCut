@@ -33,6 +33,11 @@ interface Candidate {
   confidence: number;
 }
 
+interface PlayerInfo {
+  number: number;
+  name: string;
+}
+
 interface MarkData {
   id: number;
   video_id: number;
@@ -42,6 +47,7 @@ interface MarkData {
   category: string;
   label: string;
   player_numbers: number[];
+  players: PlayerInfo[];
   start_offset: number;
   end_offset: number;
 }
@@ -83,7 +89,7 @@ export default function VideoDetailPage() {
   const [editEndTime, setEditEndTime] = useState(0);
   const [editCategory, setEditCategory] = useState('offense');
   const [editLabel, setEditLabel] = useState('');
-  const [editPlayerNumbers, setEditPlayerNumbers] = useState('');
+  const [editPlayers, setEditPlayers] = useState('');
   const [savingMark, setSavingMark] = useState(false);
 
   // 側面板顯示
@@ -239,7 +245,10 @@ export default function VideoDetailPage() {
     setEditEndTime(mark.end_time);
     setEditCategory(mark.category);
     setEditLabel(mark.label);
-    setEditPlayerNumbers(mark.player_numbers.join(', '));
+    const playersStr = (mark.players ?? []).map((p) =>
+      p.name ? `${p.number} ${p.name}` : `${p.number}`
+    ).join(', ');
+    setEditPlayers(playersStr || mark.player_numbers.join(', '));
   };
 
   /** 取消編輯 */
@@ -247,13 +256,23 @@ export default function VideoDetailPage() {
     setEditingMarkId(null);
   };
 
+  /** 解析球員輸入字串（如 "7 林書豪, 11 王大明" 或 "7, 11"） */
+  const parsePlayers = (input: string): PlayerInfo[] => {
+    if (!input.trim()) return [];
+    return input.split(/[,，]/).map((part) => {
+      const trimmed = part.trim();
+      const match = trimmed.match(/^(\d+)\s*(.*)/);
+      if (match) {
+        return { number: parseInt(match[1], 10), name: match[2].trim() };
+      }
+      return null;
+    }).filter((p): p is PlayerInfo => p !== null && !isNaN(p.number));
+  };
+
   /** 儲存標記修改 */
   const handleUpdateMark = async () => {
     if (editingMarkId === null) return;
-    const playerNumbers = editPlayerNumbers
-      .split(/[,，\s]+/)
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !isNaN(n));
+    const players = parsePlayers(editPlayers);
 
     setSavingMark(true);
     try {
@@ -262,7 +281,7 @@ export default function VideoDetailPage() {
         end_time: editEndTime,
         category: editCategory,
         label: editLabel,
-        player_numbers: playerNumbers,
+        players,
       });
       await fetchMarks();
       setEditingMarkId(null);
@@ -603,9 +622,11 @@ export default function VideoDetailPage() {
                                 </button>
                               </div>
                             </div>
-                            {mark.player_numbers.length > 0 && (
+                            {((mark.players ?? []).length > 0 || mark.player_numbers.length > 0) && (
                               <div className="mt-1 text-xs text-gray-500">
-                                球員：{mark.player_numbers.join(', ')} 號
+                                球員：{(mark.players ?? []).length > 0
+                                  ? mark.players.map((p) => p.name ? `${p.number} ${p.name}` : `${p.number} 號`).join(', ')
+                                  : mark.player_numbers.map((n) => `${n} 號`).join(', ')}
                               </div>
                             )}
                             {!isEditing && (
@@ -683,14 +704,14 @@ export default function VideoDetailPage() {
                                 </div>
                               </div>
 
-                              {/* 球員編號 */}
+                              {/* 球員 */}
                               <div>
-                                <label className="block text-xs text-gray-500 mb-1">球員編號（逗號分隔）</label>
+                                <label className="block text-xs text-gray-500 mb-1">球員（號碼 名字，逗號分隔）</label>
                                 <input
                                   type="text"
-                                  value={editPlayerNumbers}
-                                  onChange={(e) => setEditPlayerNumbers(e.target.value)}
-                                  placeholder="例：7, 11"
+                                  value={editPlayers}
+                                  onChange={(e) => setEditPlayers(e.target.value)}
+                                  placeholder="例：7 林書豪, 11 王大明"
                                   className="w-full rounded border border-gray-300 px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 />
                               </div>

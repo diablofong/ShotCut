@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import ForeignKey, String, Float, Integer, DateTime, func
+from typing import Optional
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
@@ -28,5 +29,6 @@ class MarkPlayer(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     mark_id: Mapped[int] = mapped_column(ForeignKey("marks.id", ondelete="CASCADE"))
     player_number: Mapped[int] = mapped_column(Integer)
+    player_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="")
 
     mark = relationship("Mark", back_populates="players")

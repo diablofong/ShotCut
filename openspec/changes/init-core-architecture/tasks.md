@@ -239,3 +239,21 @@
 - [x] 28.3.8 卡片顯示改用 start_time ~ end_time 格式 + 總時長
 - [x] 28.3.9 activeMarkId 計算改用 mark.start_time/end_time
 - [x] 28.3.10 傳遞 recording 狀態與 onMarkUpdate 回呼給 VideoPlayer
+
+## 29. 球員名字輸入支援
+
+- [x] 29.1 `backend/models/mark.py` MarkPlayer 新增 `player_name` 欄位（String(100), nullable, default=""）
+- [x] 29.2 產生 Alembic migration 新增 mark_players.player_name 欄位
+- [x] 29.3 `backend/routers/marks.py` 新增 `PlayerInfo` schema（number + name），MarkCreate/MarkUpdate 支援 `players` 欄位
+- [x] 29.4 `backend/routers/marks.py` MarkOut 新增 `players: list[PlayerOut]`（向後相容保留 player_numbers）
+- [x] 29.5 `backend/routers/marks.py` _mark_to_out 回傳 players 含 number + name
+- [x] 29.6 `backend/routers/marks.py` create_mark / update_mark 支援 players 欄位寫入 player_name
+- [x] 29.7 前端 MarkData 介面新增 `players: { number: number; name: string }[]`
+- [x] 29.8 前端編輯表單改為「球員（號碼 名字，逗號分隔）」格式輸入，解析 "7 林書豪, 11 王大明"
+- [x] 29.9 前端卡片顯示改為「7 林書豪, 11 王大明」格式（有名字顯示名字，無名字只顯示號碼）
+
+## 30. 片段管理快速預覽改善
+
+- [x] 30.1 VideoPlayer 元件新增 `autoplay` prop（預設 false，傳入 Video.js 初始化選項）
+- [x] 30.2 ClipsPage 點擊片段卡片或播放按鈕後自動滾動至預覽區域
+- [x] 30.3 ClipsPage 預覽播放器啟用 autoplay，選擇片段後自動播放

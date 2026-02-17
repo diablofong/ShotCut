@@ -62,6 +62,7 @@ export default function ClipsPage() {
   // 預覽
   const [previewClip, setPreviewClip] = useState<Clip | null>(null);
   const previewPlayerRef = useRef<VideoPlayerHandle>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   /** 載入片段 */
   const fetchClips = useCallback(async () => {
@@ -94,6 +95,15 @@ export default function ClipsPage() {
       setError('刪除失敗');
     }
   };
+
+  /** 選擇片段預覽 */
+  const handleSelectClip = useCallback((clip: Clip) => {
+    setPreviewClip(clip);
+    // 滾動到預覽區域
+    setTimeout(() => {
+      previewContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }, []);
 
   // 收集所有球員編號（去重排序）
   const allPlayers = Array.from(
@@ -150,7 +160,7 @@ export default function ClipsPage() {
 
         {/* 預覽播放器 */}
         {previewClip && (
-          <div className="mb-6 rounded-lg bg-white p-4 shadow">
+          <div ref={previewContainerRef} className="mb-6 rounded-lg bg-white p-4 shadow">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-800">
                 預覽：{previewClip.label}
@@ -166,6 +176,7 @@ export default function ClipsPage() {
               <VideoPlayer
                 ref={previewPlayerRef}
                 src={`/api/clips/${previewClip.id}/stream?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                autoplay
               />
             </div>
           </div>
@@ -188,7 +199,7 @@ export default function ClipsPage() {
                 {/* 卡片主體 */}
                 <div
                   className="p-4 cursor-pointer"
-                  onClick={() => setPreviewClip(clip)}
+                  onClick={() => handleSelectClip(clip)}
                 >
                   {/* 頂部標題行 */}
                   <div className="flex items-center justify-between mb-2">
@@ -225,7 +236,7 @@ export default function ClipsPage() {
                 {/* 操作列 */}
                 <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between">
                   <button
-                    onClick={() => setPreviewClip(clip)}
+                    onClick={() => handleSelectClip(clip)}
                     className="text-sm text-blue-600 hover:text-blue-800"
                   >
                     播放

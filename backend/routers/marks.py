@@ -19,6 +19,11 @@ CATEGORY_LABELS = {
 }
 
 
+class PlayerInfo(BaseModel):
+    number: int
+    name: str = ""
+
+
 class MarkCreate(BaseModel):
     # 方式 1（舊）：時間點 + 偏移
     time: float | None = None
@@ -31,6 +36,7 @@ class MarkCreate(BaseModel):
     category: str = "untagged"
     label: str = ""
     player_numbers: list[int] = []
+    players: list[PlayerInfo] = []
 
 
 class MarkUpdate(BaseModel):
@@ -42,6 +48,12 @@ class MarkUpdate(BaseModel):
     category: str | None = None
     label: str | None = None
     player_numbers: list[int] | None = None
+    players: list[PlayerInfo] | None = None
+
+
+class PlayerOut(BaseModel):
+    number: int
+    name: str
 
 
 class MarkOut(BaseModel):
@@ -55,6 +67,7 @@ class MarkOut(BaseModel):
     category: str
     label: str
     player_numbers: list[int] = []
+    players: list[PlayerOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -72,6 +85,7 @@ def _mark_to_out(mark: Mark) -> MarkOut:
         category=mark.category,
         label=mark.label or CATEGORY_LABELS.get(mark.category, mark.category),
         player_numbers=[p.player_number for p in mark.players],
+        players=[PlayerOut(number=p.player_number, name=p.player_name or "") for p in mark.players],
     )
 
 
@@ -108,8 +122,12 @@ async def create_mark(
     db.add(mark)
     await db.flush()
 
-    for num in req.player_numbers:
-        db.add(MarkPlayer(mark_id=mark.id, player_number=num))
+    if req.players:
+        for p in req.players:
+            db.add(MarkPlayer(mark_id=mark.id, player_number=p.number, player_name=p.name))
+    else:
+        for num in req.player_numbers:
+            db.add(MarkPlayer(mark_id=mark.id, player_number=num))
 
     await db.commit()
 
@@ -168,7 +186,13 @@ async def update_mark(
     if req.label is not None:
         mark.label = req.label
 
-    if req.player_numbers is not None:
+    if req.players is not None:
+        for p in mark.players:
+            await db.delete(p)
+        await db.flush()
+        for p in req.players:
+            db.add(MarkPlayer(mark_id=mark.id, player_number=p.number, player_name=p.name))
+    elif req.player_numbers is not None:
         for p in mark.players:
             await db.delete(p)
         await db.flush()

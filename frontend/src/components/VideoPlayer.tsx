@@ -24,6 +24,7 @@ export interface VideoPlayerProps {
   src: string;
   marks?: Mark[];
   currentTime?: number;
+  autoplay?: boolean;
   onTimeUpdate?: (currentTime: number) => void;
   onMarkUpdate?: (markId: number, startTime: number, endTime: number) => void;
   recording?: { startTime: number; category: string } | null;
@@ -37,7 +38,7 @@ export interface VideoPlayerHandle {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ src, marks = [], currentTime = 0, onTimeUpdate, onMarkUpdate, recording }, ref) => {
+  ({ src, marks = [], currentTime = 0, autoplay = false, onTimeUpdate, onMarkUpdate, recording }, ref) => {
     const videoRef = useRef<HTMLDivElement>(null);
     const playerRef = useRef<Player | null>(null);
     const markersRef = useRef<HTMLDivElement>(null);
@@ -76,7 +77,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       const player = videojs(videoElement, {
         controls: true,
-        autoplay: false,
+        autoplay,
         preload: 'auto',
         responsive: true,
         fluid: true,
