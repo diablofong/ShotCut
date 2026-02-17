@@ -26,10 +26,6 @@
 - **WHEN** 前端傳送 `time` + `start_offset` + `end_offset` 至 MarkCreate API
 - **THEN** 系統計算 `start_time = max(0, time - start_offset)` 和 `end_time = time + end_offset`
 
-#### Scenario: 從候選時間點快速建立標記
-- **WHEN** 使用者選擇一個音訊分析產出的候選時間點並確認建立標記
-- **THEN** 系統以該候選時間點建立標記，使用者可補充分類與球員資訊
-
 ### Requirement: 標記分類
 系統 SHALL 支援以下分類標籤：進攻（offense）、防守（defense）、失誤（turnover）。
 
