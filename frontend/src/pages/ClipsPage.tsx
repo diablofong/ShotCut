@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { clipApi } from '../services/api';
 import VideoPlayer, { type VideoPlayerHandle } from '../components/VideoPlayer';
 import Navbar from '../components/Navbar';
+import DataTable, { type Column } from '../components/DataTable';
+import SearchInput from '../components/SearchInput';
+import { useSearch } from '../hooks/useSearch';
 
 interface Clip {
   id: number;
@@ -10,6 +13,7 @@ interface Clip {
   file_path: string;
   category: string;
   label: string;
+  video_title: string;
   player_numbers: number[];
   start_time: number;
   end_time: number;
@@ -20,13 +24,17 @@ const CATEGORY_OPTIONS = [
   { value: '', label: '全部分類' },
   { value: 'offense', label: '進攻' },
   { value: 'defense', label: '防守' },
-  { value: 'highlight', label: '精彩' },
   { value: 'turnover', label: '失誤' },
 ];
 
+const CATEGORY_LABELS: Record<string, string> = {
+  offense: '進攻',
+  defense: '防守',
+  turnover: '失誤',
+};
+
 function categoryLabel(category: string) {
-  const found = CATEGORY_OPTIONS.find((c) => c.value === category);
-  return found ? found.label : category;
+  return CATEGORY_LABELS[category] || category;
 }
 
 function categoryBadge(category: string) {
@@ -35,8 +43,6 @@ function categoryBadge(category: string) {
       return 'bg-blue-100 text-blue-800';
     case 'defense':
       return 'bg-emerald-100 text-emerald-800';
-    case 'highlight':
-      return 'bg-amber-100 text-amber-800';
     case 'turnover':
       return 'bg-red-100 text-red-800';
     default:
@@ -55,16 +61,13 @@ export default function ClipsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // 篩選
   const [filterCategory, setFilterCategory] = useState('');
   const [filterPlayer, setFilterPlayer] = useState('');
 
-  // 預覽
   const [previewClip, setPreviewClip] = useState<Clip | null>(null);
   const previewPlayerRef = useRef<VideoPlayerHandle>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
-  /** 載入片段 */
   const fetchClips = useCallback(async () => {
     setLoading(true);
     try {
@@ -84,7 +87,19 @@ export default function ClipsPage() {
     fetchClips();
   }, [fetchClips]);
 
-  /** 刪除片段 */
+  const { searchQuery, setSearchQuery, filteredItems: filteredClips } = useSearch(
+    clips,
+    useCallback(
+      (c: Clip) => [
+        c.label,
+        c.video_title,
+        categoryLabel(c.category),
+        ...c.player_numbers.map(String),
+      ],
+      [],
+    ),
+  );
+
   const handleDelete = async (id: number) => {
     if (!confirm('確定要刪除此片段嗎？')) return;
     try {
@@ -96,26 +111,129 @@ export default function ClipsPage() {
     }
   };
 
-  /** 選擇片段預覽 */
   const handleSelectClip = useCallback((clip: Clip) => {
     setPreviewClip(clip);
-    // 滾動到預覽區域
     setTimeout(() => {
       previewContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
   }, []);
 
-  // 收集所有球員編號（去重排序）
   const allPlayers = Array.from(
-    new Set(clips.flatMap((c) => c.player_numbers))
+    new Set(clips.flatMap((c) => c.player_numbers)),
   ).sort((a, b) => a - b);
+
+  const columns: Column<Clip>[] = [
+    {
+      key: 'thumbnail',
+      header: '縮圖',
+      width: 'w-20',
+      render: (c) => (
+        <img
+          src={`/api/clips/${c.id}/thumbnail?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+          alt=""
+          className="w-16 h-9 object-cover rounded bg-gray-200"
+          onError={(e) => {
+            const img = e.target as HTMLImageElement;
+            img.style.display = 'none';
+            const parent = img.parentElement!;
+            if (!parent.querySelector('.placeholder')) {
+              const placeholder = document.createElement('div');
+              placeholder.className = 'placeholder w-16 h-9 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs';
+              placeholder.textContent = '無圖';
+              parent.appendChild(placeholder);
+            }
+          }}
+        />
+      ),
+    },
+    {
+      key: 'video_title',
+      header: '影片',
+      sortable: true,
+      sortFn: (a, b) => a.video_title.localeCompare(b.video_title),
+      render: (c) => (
+        <span className="text-gray-700 truncate block max-w-[200px]" title={c.video_title}>
+          {c.video_title}
+        </span>
+      ),
+    },
+    {
+      key: 'label',
+      header: '標記',
+      sortable: true,
+      sortFn: (a, b) => a.label.localeCompare(b.label),
+      render: (c) => (
+        <div className="flex items-center gap-2">
+          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${categoryBadge(c.category)}`}>
+            {categoryLabel(c.category)}
+          </span>
+          <span className="font-medium text-gray-900 text-sm">{c.label}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'time_range',
+      header: '時間區段',
+      sortable: true,
+      width: 'w-32',
+      sortFn: (a, b) => a.start_time - b.start_time,
+      render: (c) => (
+        <span className="text-gray-600 tabular-nums">
+          {formatTime(c.start_time)} ~ {formatTime(c.end_time)}
+        </span>
+      ),
+    },
+    {
+      key: 'player_numbers',
+      header: '球員',
+      width: 'w-32',
+      render: (c) =>
+        c.player_numbers.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {c.player_numbers.map((num) => (
+              <span key={num} className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                {num} 號
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-gray-400 text-xs">—</span>
+        ),
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: 'w-36',
+      render: (c) => (
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => handleSelectClip(c)}
+            className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50"
+          >
+            播放
+          </button>
+          <a
+            href={`/api/clips/${c.id}/download?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+            className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100"
+          >
+            下載
+          </a>
+          <button
+            onClick={() => handleDelete(c.id)}
+            className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50"
+          >
+            刪除
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8">
-        {/* 錯誤提示 */}
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
             {error}
@@ -124,39 +242,6 @@ export default function ClipsPage() {
             </button>
           </div>
         )}
-
-        {/* 篩選列 */}
-        <div className="mb-6 flex flex-wrap gap-3 items-center">
-          <label className="text-sm text-gray-600 font-medium">篩選：</label>
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {CATEGORY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filterPlayer}
-            onChange={(e) => setFilterPlayer(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="">全部球員</option>
-            {allPlayers.map((num) => (
-              <option key={num} value={String(num)}>
-                {num} 號
-              </option>
-            ))}
-          </select>
-
-          <span className="text-sm text-gray-400">
-            共 {clips.length} 個片段
-          </span>
-        </div>
 
         {/* 預覽播放器 */}
         {previewClip && (
@@ -182,84 +267,55 @@ export default function ClipsPage() {
           </div>
         )}
 
-        {/* 片段列表 */}
-        {loading ? (
-          <div className="text-center py-12 text-gray-500">載入中...</div>
-        ) : clips.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            尚無片段，請先在影片中建立標記並擷取片段
+        {/* 搜尋 + 篩選列 */}
+        <div className="mb-4 flex flex-wrap gap-3 items-center">
+          <div className="w-72">
+            <SearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="搜尋影片、標記、分類、球員..."
+            />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {clips.map((clip) => (
-              <div
-                key={clip.id}
-                className="rounded-lg bg-white shadow hover:shadow-md transition-shadow overflow-hidden"
-              >
-                {/* 卡片主體 */}
-                <div
-                  className="p-4 cursor-pointer"
-                  onClick={() => handleSelectClip(clip)}
-                >
-                  {/* 頂部標題行 */}
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-gray-900 truncate">
-                      {clip.label}
-                    </span>
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${categoryBadge(clip.category)}`}
-                    >
-                      {categoryLabel(clip.category)}
-                    </span>
-                  </div>
 
-                  {/* 時間範圍 */}
-                  <div className="text-sm text-gray-500 mb-1">
-                    {formatTime(clip.start_time)} - {formatTime(clip.end_time)}
-                  </div>
-
-                  {/* 球員 */}
-                  {clip.player_numbers.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {clip.player_numbers.map((num) => (
-                        <span
-                          key={num}
-                          className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
-                        >
-                          {num} 號
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* 操作列 */}
-                <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between">
-                  <button
-                    onClick={() => handleSelectClip(clip)}
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    播放
-                  </button>
-                  <div className="flex items-center gap-3">
-                    <a
-                      href={`/api/clips/${clip.id}/download?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
-                      className="text-sm text-gray-600 hover:text-gray-800"
-                    >
-                      下載
-                    </a>
-                    <button
-                      onClick={() => handleDelete(clip.id)}
-                      className="text-sm text-red-600 hover:text-red-800"
-                    >
-                      刪除
-                    </button>
-                  </div>
-                </div>
-              </div>
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            {CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
-          </div>
-        )}
+          </select>
+
+          <select
+            value={filterPlayer}
+            onChange={(e) => setFilterPlayer(e.target.value)}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">全部球員</option>
+            {allPlayers.map((num) => (
+              <option key={num} value={String(num)}>
+                {num} 號
+              </option>
+            ))}
+          </select>
+
+          <span className="text-sm text-gray-500 ml-auto">
+            共 {filteredClips.length} 個片段
+          </span>
+        </div>
+
+        {/* 片段表格 */}
+        <DataTable
+          columns={columns}
+          data={filteredClips}
+          keyExtractor={(c) => c.id}
+          onRowClick={handleSelectClip}
+          emptyMessage="尚無片段，請先在影片中建立標記並擷取片段"
+          loading={loading}
+        />
       </main>
     </div>
   );

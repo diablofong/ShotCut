@@ -179,3 +179,24 @@ async def video_status(
 ):
     video = await verify_video_owner(video_id, db, current_user)
     return video
+
+
+@router.get("/videos/{video_id}/thumbnail")
+async def video_thumbnail(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
+
+    video = await verify_video_owner(video_id, db, current_user)
+    # Lazy 生成：若縮圖不存在但影片檔案存在，即時生成
+    if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
+        if video.file_path and os.path.exists(video.file_path):
+            thumb_path = get_video_thumbnail_path(video.id)
+            if generate_thumbnail(video.file_path, thumb_path):
+                video.thumbnail_path = thumb_path
+                await db.commit()
+    if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
+        raise HTTPException(status_code=404, detail="縮圖不存在")
+    return FileResponse(video.thumbnail_path, media_type="image/jpeg")

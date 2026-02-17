@@ -110,7 +110,12 @@ async def create_mark(
         end_time = req.time + req.end_offset
     else:
         raise HTTPException(status_code=400, detail="需提供 start_time/end_time 或 time")
-    label = req.label or CATEGORY_LABELS.get(req.category, req.category)
+    def _fmt_time(s: float) -> str:
+        m, sec = int(s) // 60, int(s) % 60
+        return f"{m}:{sec:02d}"
+
+    cat_label = CATEGORY_LABELS.get(req.category, req.category)
+    label = req.label or f"{cat_label} {_fmt_time(start_time)}"
 
     mark = Mark(
         video_id=video_id,

@@ -124,6 +124,12 @@ async def _async_download(video_id: int, url: str, db_url: str):
             video.download_speed = None
             video.download_eta = None
 
+            # 產生縮圖
+            from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
+            thumb_path = get_video_thumbnail_path(video_id)
+            if generate_thumbnail(downloaded, thumb_path):
+                video.thumbnail_path = thumb_path
+
         except Exception as e:
             download_done = True
             video.status = "failed"
@@ -152,6 +158,13 @@ async def create_upload(db: AsyncSession, filename: str, content: bytes, user_id
 
     video.file_path = file_path
     video.file_size = len(content)
+
+    # 產生縮圖
+    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
+    thumb_path = get_video_thumbnail_path(video.id)
+    if generate_thumbnail(file_path, thumb_path):
+        video.thumbnail_path = thumb_path
+
     await db.commit()
     await db.refresh(video)
     return video

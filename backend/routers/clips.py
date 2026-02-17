@@ -17,7 +17,6 @@ router = APIRouter(tags=["clips"])
 CATEGORY_LABELS = {
     "offense": "進攻",
     "defense": "防守",
-    "highlight": "精彩",
     "turnover": "失誤",
     "untagged": "未分類",
 }
@@ -34,6 +33,7 @@ class ClipOut(BaseModel):
     error_message: str | None = None
     category: str = ""
     label: str = ""
+    video_title: str = ""
     player_numbers: list[int] = []
     start_time: float = 0
     end_time: float = 0
@@ -54,6 +54,7 @@ def _clip_to_out(clip: Clip) -> ClipOut:
         error_message=clip.error_message,
         category=mark.category if mark else "",
         label=(mark.label or CATEGORY_LABELS.get(mark.category, mark.category)) if mark else "",
+        video_title=clip.video.title if clip.video else "",
         player_numbers=[p.player_number for p in mark.players] if mark else [],
         start_time=mark.start_time if mark else 0,
         end_time=mark.end_time if mark else 0,
@@ -165,6 +166,30 @@ async def download_clip(
         clip.file_path, media_type="video/mp4",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )
+
+
+@router.get("/clips/{clip_id}/thumbnail")
+async def clip_thumbnail(
+    clip_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.thumbnail_service import generate_thumbnail, get_clip_thumbnail_path
+
+    clip = await db.get(Clip, clip_id)
+    if not clip:
+        raise HTTPException(status_code=404, detail="片段不存在")
+    await verify_video_owner(clip.video_id, db, current_user)
+    # Lazy 生成
+    if not clip.thumbnail_path or not os.path.exists(clip.thumbnail_path):
+        if clip.file_path and os.path.exists(clip.file_path):
+            thumb_path = get_clip_thumbnail_path(clip.id)
+            if generate_thumbnail(clip.file_path, thumb_path, timestamp=0.5):
+                clip.thumbnail_path = thumb_path
+                await db.commit()
+    if not clip.thumbnail_path or not os.path.exists(clip.thumbnail_path):
+        raise HTTPException(status_code=404, detail="縮圖不存在")
+    return FileResponse(clip.thumbnail_path, media_type="image/jpeg")
 
 
 @router.delete("/clips/{clip_id}")

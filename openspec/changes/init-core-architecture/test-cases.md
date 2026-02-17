@@ -1,6 +1,6 @@
 # ShotCut 整合測試案例
 
-> 17 大項、78 個測試案例，涵蓋後端 API + 前端 E2E 全功能驗證
+> 涵蓋後端 API + 前端 E2E 全功能驗證
 
 ---
 
@@ -39,13 +39,9 @@
 | 3.9 | 串流（Range） | GET `/api/videos/{id}/stream` header `Range: bytes=0-1023` | 206，`Content-Range: bytes 0-1023/{total}`，回傳 1024 bytes |
 | 3.10 | 串流（中段 Range） | GET `/api/videos/{id}/stream` header `Range: bytes=50000-51023` | 206，回傳正確位元組範圍 |
 
-## 4. 音訊分析
+## ~~4. 音訊分析~~ — 已移除
 
-| ID | 案例 | 步驟 | 預期結果 |
-|----|------|------|----------|
-| 4.1 | 觸發分析 | POST `/api/videos/{id}/analyze` | 200，背景開始分析 |
-| 4.2 | 取得候選時間點 | GET `/api/videos/{id}/candidates`（分析完成後） | 200，回傳 `[{ id, time, type, confidence }]` |
-| 4.3 | 無影片檔案 | POST `/api/videos/999/analyze` | 404 |
+> 音訊分析功能因辨識度不足已移除，相關測試案例不再適用。
 
 ## 5. 標記 CRUD（軌道式）
 
@@ -191,3 +187,37 @@
 | 17.2 | User 不可存取他人影片 | User B 直接訪問 `/videos/{userA_video_id}` | 403 或 404 |
 | 17.3 | Admin 可見全部 | Admin 登入 → 影片頁面 | 列表包含所有使用者的影片 |
 | 17.4 | User 不可管理使用者 | User 訪問 `/users` | 頁面不顯示（或 403） |
+
+## 18. 分享連結有效期
+
+| ID | 案例 | 步驟 | 預期結果 |
+|----|------|------|----------|
+| 18.1 | 建立 7 天分享 | POST `/api/shares` `{ highlight_id: 1, expiration: "7d" }` | 200，`expires_at` 為 7 天後 |
+| 18.2 | 建立永久分享 | POST `/api/shares` `{ highlight_id: 1, expiration: "permanent" }` | 200，`expires_at` 為 null |
+| 18.3 | 過期分享被拒 | GET `/api/shares/{expired_token}` | 410 Gone `分享連結已過期` |
+| 18.4 | 前端過期提示 | 訪問已過期的分享頁面 | 顯示「連結已過期」提示 |
+
+## 19. 預覽縮圖
+
+| ID | 案例 | 步驟 | 預期結果 |
+|----|------|------|----------|
+| 19.1 | 影片縮圖 | GET `/api/videos/{id}/thumbnail` | 200 image/jpeg（lazy 生成） |
+| 19.2 | 片段縮圖 | GET `/api/clips/{id}/thumbnail` | 200 image/jpeg |
+| 19.3 | 精華縮圖 | GET `/api/highlights/{id}/thumbnail` | 200 image/jpeg |
+| 19.4 | 無檔案時 404 | GET `/api/videos/999/thumbnail` | 404 |
+
+## 20. 表格與搜尋
+
+| ID | 案例 | 操作 | 預期結果 |
+|----|------|------|----------|
+| 20.1 | 影片搜尋 | 影片頁面搜尋框輸入關鍵字 | 表格即時篩選匹配的影片 |
+| 20.2 | 片段搜尋 | 片段頁面搜尋框輸入影片名稱 | 表格顯示該影片的片段 |
+| 20.3 | 表格排序 | 點擊欄位標題 | 表格按該欄位升冪/降冪排序 |
+
+## 21. 播放速度控制
+
+| ID | 案例 | 操作 | 預期結果 |
+|----|------|------|----------|
+| 21.1 | 顯示速度選單 | 播放器控制列點擊速度按鈕 | 出現 0.25x ~ 2x 速度選項 |
+| 21.2 | 慢速播放 | 選擇 0.5x | 影片以半速播放 |
+| 21.3 | 快速播放 | 選擇 2x | 影片以兩倍速播放 |

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { videoApi, analysisApi, markApi, clipApi } from '../services/api';
+import { videoApi, markApi, clipApi } from '../services/api';
 import VideoPlayer, { type VideoPlayerHandle, type Mark } from '../components/VideoPlayer';
 import Navbar from '../components/Navbar';
 
@@ -24,13 +24,6 @@ interface Video {
   status: string;
   duration: number | null;
   file_path: string;
-}
-
-interface Candidate {
-  id: number;
-  time: number;
-  type: string;
-  confidence: number;
 }
 
 interface PlayerInfo {
@@ -67,7 +60,6 @@ export default function VideoDetailPage() {
   // 資料狀態
   const [video, setVideo] = useState<Video | null>(null);
   const [marks, setMarks] = useState<MarkData[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -80,7 +72,6 @@ export default function VideoDetailPage() {
   } | null>(null);
 
   // 操作狀態
-  const [analyzing, setAnalyzing] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
   // 標記編輯狀態
@@ -91,9 +82,6 @@ export default function VideoDetailPage() {
   const [editLabel, setEditLabel] = useState('');
   const [editPlayers, setEditPlayers] = useState('');
   const [savingMark, setSavingMark] = useState(false);
-
-  // 側面板顯示
-  const [sidePanel, setSidePanel] = useState<'candidates' | 'marks'>('marks');
 
   // Toast 提示（帶類別顏色）
   const [toast, setToast] = useState<{ message: string; category?: string } | null>(null);
@@ -121,21 +109,10 @@ export default function VideoDetailPage() {
     }
   }, [videoId]);
 
-  /** 載入候選時間點 */
-  const fetchCandidates = useCallback(async () => {
-    try {
-      const res = await analysisApi.candidates(videoId);
-      setCandidates(res.data);
-    } catch {
-      /* 靜默處理 */
-    }
-  }, [videoId]);
-
   useEffect(() => {
     fetchVideo();
     fetchMarks();
-    fetchCandidates();
-  }, [fetchVideo, fetchMarks, fetchCandidates]);
+  }, [fetchVideo, fetchMarks]);
 
   /** 顯示 toast 提示 */
   const showToast = useCallback((msg: string, category?: string) => {
@@ -156,6 +133,13 @@ export default function VideoDetailPage() {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+      // Space：暫停/播放切換
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        playerRef.current?.togglePlay();
+        return;
+      }
+
       // Esc：結束錄製
       if (e.key === 'Escape' && recording) {
         e.preventDefault();
@@ -163,7 +147,7 @@ export default function VideoDetailPage() {
         return;
       }
 
-      // 1-3：開始錄製
+      // 1-3：開始錄製（不暫停影片）
       const cat = SHORTCUT_MAP[e.key];
       if (!cat) return;
       e.preventDefault();
@@ -171,8 +155,7 @@ export default function VideoDetailPage() {
       if (recording) return; // 已在錄製中，忽略
 
       const time = playerRef.current?.getCurrentTime() ?? currentTime;
-      playerRef.current?.pause();
-      setRecording({ category: cat.value, label: cat.label, startTime: time });
+      setRecording({ category: cat.value, label: `${cat.label} ${formatTime(time)}`, startTime: time });
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -183,7 +166,6 @@ export default function VideoDetailPage() {
   const finishRecording = useCallback(async () => {
     if (!recording) return;
     const endTime = playerRef.current?.getCurrentTime() ?? currentTime;
-    playerRef.current?.pause();
 
     const startTime = recording.startTime;
     const cat = CATEGORIES.find((c) => c.value === recording.category);
@@ -222,21 +204,6 @@ export default function VideoDetailPage() {
   const cancelRecording = useCallback(() => {
     setRecording(null);
   }, []);
-
-  /** 觸發音訊分析 */
-  const handleAnalyze = async () => {
-    setAnalyzing(true);
-    setError('');
-    try {
-      await analysisApi.analyze(videoId);
-      await fetchCandidates();
-      setSidePanel('candidates');
-    } catch {
-      setError('音訊分析失敗');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
 
   /** 開始編輯標記 */
   const startEditMark = (mark: MarkData) => {
@@ -333,11 +300,6 @@ export default function VideoDetailPage() {
     playerRef.current?.seekTo(Math.max(0, time));
   };
 
-  /** 從候選時間點建立標記 */
-  const createMarkFromCandidate = (candidate: Candidate) => {
-    seekTo(candidate.time);
-  };
-
   // 轉換為 VideoPlayer 元件所需的 marks 格式
   const playerMarks: Mark[] = marks.map((m) => ({
     id: m.id,
@@ -401,22 +363,13 @@ export default function VideoDetailPage() {
           <h1 className="text-base font-semibold text-gray-800 truncate max-w-md">
             {video.title}
           </h1>
-          <div className="flex gap-2">
-            <button
-              onClick={handleAnalyze}
-              disabled={analyzing}
-              className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-            >
-              {analyzing ? '分析中...' : '音訊分析'}
-            </button>
-            <button
-              onClick={handleExtractClips}
-              disabled={extracting || marks.length === 0}
-              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            >
-              {extracting ? '擷取中...' : '批次擷取片段'}
-            </button>
-          </div>
+          <button
+            onClick={handleExtractClips}
+            disabled={extracting || marks.length === 0}
+            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+          >
+            {extracting ? '擷取中...' : '批次擷取片段'}
+          </button>
         </div>
       </div>
 
@@ -510,7 +463,6 @@ export default function VideoDetailPage() {
                     key={cat.value}
                     onClick={() => {
                       const time = playerRef.current?.getCurrentTime() ?? currentTime;
-                      playerRef.current?.pause();
                       setRecording({ category: cat.value, label: cat.label, startTime: time });
                     }}
                     className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${cat.color} text-white hover:opacity-90 active:scale-95`}
@@ -524,40 +476,15 @@ export default function VideoDetailPage() {
                 ))}
 
                 <span className="ml-auto text-xs text-gray-400">
-                  按數字鍵開始標記，Esc 結束
+                  數字鍵開始標記，Esc 結束，Space 暫停/播放
                 </span>
               </div>
             )}
           </div>
 
-          {/* 右側面板 */}
+          {/* 右側面板：標記列表 */}
           <div className="w-80 shrink-0">
-            {/* 面板切換 */}
-            <div className="flex rounded-lg bg-gray-200 p-1 mb-4">
-              <button
-                onClick={() => setSidePanel('marks')}
-                className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
-                  sidePanel === 'marks'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                標記 ({marks.length})
-              </button>
-              <button
-                onClick={() => setSidePanel('candidates')}
-                className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
-                  sidePanel === 'candidates'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                候選點 ({candidates.length})
-              </button>
-            </div>
-
-            {/* 標記列表 */}
-            {sidePanel === 'marks' && (
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">標記 ({marks.length})</h3>
               <div ref={markListRef} className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
                 {marks.length === 0 ? (
                   <div className="text-center py-8 text-sm text-gray-400">
@@ -745,49 +672,6 @@ export default function VideoDetailPage() {
                     })
                 )}
               </div>
-            )}
-
-            {/* 候選時間點列表 */}
-            {sidePanel === 'candidates' && (
-              <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
-                {candidates.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-gray-400">
-                    尚無候選時間點，請先執行音訊分析
-                  </div>
-                ) : (
-                  candidates.map((c) => (
-                    <div
-                      key={c.id}
-                      className="rounded-lg bg-white p-3 shadow-sm hover:shadow transition-shadow cursor-pointer"
-                      onClick={() => seekTo(c.time)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">
-                          {c.type === 'whistle' ? '哨音' : c.type === 'cheer' ? '歡呼' : c.type}
-                        </span>
-                        <span className="text-xs text-gray-400 font-mono">
-                          {formatTime(c.time)}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between">
-                        <span className="text-xs text-gray-500">
-                          信心度：{(c.confidence * 100).toFixed(0)}%
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            createMarkFromCandidate(c);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          跳轉
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
           </div>
         </div>
       </main>

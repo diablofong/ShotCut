@@ -36,7 +36,7 @@ COPY entrypoint.sh ./
 COPY --from=frontend-build /frontend/dist ./frontend/dist
 
 # 建立影片儲存目錄
-RUN mkdir -p /app/uploads /app/clips /app/highlights
+RUN mkdir -p /app/uploads /app/clips /app/highlights /app/thumbnails
 
 # 修正 Windows CRLF 換行符並設定執行權限
 RUN sed -i 's/\r$//' ./entrypoint.sh && chmod +x ./entrypoint.sh

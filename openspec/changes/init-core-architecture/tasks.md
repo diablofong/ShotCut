@@ -43,14 +43,18 @@
 - [x] 4.7 建立前端影片管理頁面（列表、YouTube URL 輸入、上傳、刪除）
 - [x] 4.8 建立前端下載/上傳進度顯示元件
 
-## 5. 音訊分析模組（audio-analysis）
+## 5. ~~音訊分析模組（audio-analysis）~~ — 已移除
 
-- [x] 5.1 建立 backend/services/audio_service.py（音訊提取、librosa 載入）
-- [x] 5.2 實作哨音偵測演算法（帶通濾波 2kHz-4kHz + 峰值偵測）
-- [x] 5.3 實作歡呼聲偵測演算法（寬頻能量突增 + 持續時間閾值）
-- [x] 5.4 建立 backend/routers/analysis.py（POST /api/videos/{id}/analyze、GET /api/videos/{id}/candidates）
-- [x] 5.5 實作分析參數可調功能（敏感度、最小間隔）
-- [x] 5.6 建立前端候選時間點側面板元件（列表、確認/忽略按鈕）
+> 因辨識度過低、實用性不足，已於 v0.2 移除整個音訊分析功能。
+> 刪除檔案：`backend/routers/analysis.py`、`backend/services/audio_service.py`
+> 前端移除：analysisApi、候選時間點面板、分析按鈕與進度條
+
+- [x] ~~5.1 建立 backend/services/audio_service.py~~
+- [x] ~~5.2 實作哨音偵測演算法~~
+- [x] ~~5.3 實作歡呼聲偵測演算法~~
+- [x] ~~5.4 建立 backend/routers/analysis.py~~
+- [x] ~~5.5 實作分析參數可調功能~~
+- [x] ~~5.6 建立前端候選時間點側面板元件~~
 
 ## 6. 影片標記模組（video-marking）
 
@@ -91,9 +95,9 @@
 
 ## 10. 整合測試與收尾
 
-- [ ] 10.1 完整流程測試：YouTube 下載 → 音訊分析 → 標記 → 切片 → 精華剪輯 → 分享（需 Docker 環境）
-- [ ] 10.2 驗證 docker-compose up 一鍵啟動正常運作（需 Docker 環境）
-- [ ] 10.3 驗證容器重啟後資料持久化（MariaDB volume + 影片檔案 volume）（需 Docker 環境）
+- [x] 10.1 完整流程測試：YouTube 下載 → 標記 → 切片 → 精華剪輯 → 分享（Docker 環境驗證通過）
+- [x] 10.2 驗證 docker-compose up 一鍵啟動正常運作（Docker 環境驗證通過）
+- [x] 10.3 驗證容器重啟後資料持久化（MariaDB volume + 影片檔案 volume）（Docker 環境驗證通過）
 - [x] 10.4 確認前端所有頁面路由正常、API 串接完整（TypeScript 檢查通過、Vite 建置成功）
 
 ## 11. 後端認證基礎設施（user-auth）
@@ -122,7 +126,7 @@
 ## 14. 後端路由加入認證保護
 
 - [x] 14.1 修改 backend/routers/videos.py：所有端點注入 get_current_user，新增/上傳設 owner_id，列表/詳情/刪除加所有權驗證
-- [x] 14.2 修改 backend/routers/analysis.py：所有端點注入 get_current_user，驗證影片所有權
+- [x] ~~14.2 修改 backend/routers/analysis.py~~ — 已隨音訊分析模組移除
 - [x] 14.3 修改 backend/routers/marks.py：所有端點注入 get_current_user，透過 video 鏈驗證所有權
 - [x] 14.4 修改 backend/routers/clips.py：所有端點注入 get_current_user，列表過濾 + 刪除所有權驗證
 - [x] 14.5 修改 backend/routers/highlights.py：所有端點注入 get_current_user，generate 傳 user_id，列表加 owner_id 過濾
@@ -262,3 +266,44 @@
 
 - [x] 31.1 片段串流端點（`/clips/{id}/stream`）加入 HTTP Range 請求支援（與影片串流一致）
 - [x] 31.2 修復精華剪輯刪除：`delete_highlight` 使用 `selectinload` 預載關聯，避免 async lazy loading 錯誤
+
+## 32. 分享連結有效期
+
+- [x] 32.1 ShareLink model 新增 `expires_at` 欄位（DateTime, nullable）
+- [x] 32.2 分享建立 API 支援 `expiration` 參數（24h/7d/30d/永久）
+- [x] 32.3 公開分享端點驗證有效期，過期回傳 410 Gone
+- [x] 32.4 前端分享建立 UI 加入有效期選單
+- [x] 32.5 前端 SharePage 處理 410 過期狀態顯示
+
+## 33. 頁面表格化 + 搜尋功能
+
+- [x] 33.1 建立共用 DataTable 元件（排序、空狀態、loading、row click）
+- [x] 33.2 建立共用 SearchInput 元件 + useSearch hook（多欄位模糊搜尋）
+- [x] 33.3 VideosPage 改為 DataTable 表格佈局（含行內重新命名、狀態進度條）
+- [x] 33.4 ClipsPage 改為 DataTable 表格佈局（含來源影片欄位）
+- [x] 33.5 HighlightsPage 改為 DataTable 表格佈局（含分享有效期顯示）
+
+## 34. 預覽縮圖功能
+
+- [x] 34.1 建立 thumbnail_service.py（FFmpeg 擷取影片第 5 秒幀為 JPEG）
+- [x] 34.2 影片/片段/精華 thumbnail 端點（lazy 生成 + 快取）
+- [x] 34.3 docker-compose.yml 新增 THUMBNAIL_DIR 環境變數與 volume 掛載
+- [x] 34.4 啟動時批次補生成既有項目的缺失縮圖
+- [x] 34.5 前端所有頁面表格顯示縮圖欄位（含 token auth）
+
+## 35. 片段辨識度改善
+
+- [x] 35.1 ClipOut 新增 `video_title` 欄位，clip_service 加入 `selectinload(Clip.video)`
+- [x] 35.2 ClipsPage 表格新增「影片」欄位，搜尋包含影片標題
+- [x] 35.3 標記預設 label 改為「分類名 時間戳」格式（如「進攻 0:19」）
+
+## 36. 播放速度控制
+
+- [x] 36.1 VideoPlayer Video.js 設定加入 `playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]`
+
+## 37. 移除音訊分析功能
+
+- [x] 37.1 刪除 backend/routers/analysis.py、backend/services/audio_service.py
+- [x] 37.2 main.py 移除 analysis router 註冊
+- [x] 37.3 Video model 移除 candidates relationship
+- [x] 37.4 前端移除 analysisApi、Candidate interface、所有分析相關 UI

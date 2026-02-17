@@ -31,10 +31,12 @@ services:
       UPLOAD_DIR: /app/uploads
       CLIP_DIR: /app/clips
       HIGHLIGHT_DIR: /app/highlights
+      THUMBNAIL_DIR: /app/thumbnails
     volumes:
       - ./data/uploads:/app/uploads
       - ./data/clips:/app/clips
       - ./data/highlights:/app/highlights
+      - ./data/thumbnails:/app/thumbnails
     depends_on:
       db:
         condition: service_healthy

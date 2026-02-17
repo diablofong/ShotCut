@@ -62,13 +62,6 @@ export const videoApi = {
   status: (id: number) => api.get(`/videos/${id}/status`),
 };
 
-// 音訊分析
-export const analysisApi = {
-  analyze: (videoId: number, params?: { sensitivity?: number; min_interval?: number }) =>
-    api.post(`/videos/${videoId}/analyze`, params),
-  candidates: (videoId: number) => api.get(`/videos/${videoId}/candidates`),
-};
-
 // 標記
 export const markApi = {
   list: (videoId: number) => api.get(`/videos/${videoId}/marks`),
@@ -94,7 +87,8 @@ export const highlightApi = {
 
 // 分享
 export const shareApi = {
-  create: (highlightId: number) => api.post('/shares', { highlight_id: highlightId }),
+  create: (highlightId: number, expiration: string = '7d') =>
+    api.post('/shares', { highlight_id: highlightId, expiration }),
   get: (token: string) => api.get(`/shares/${token}`),
   delete: (id: number) => api.delete(`/shares/${id}`),
 };

@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { videoApi } from '../services/api';
 import Navbar from '../components/Navbar';
+import DataTable, { type Column } from '../components/DataTable';
+import SearchInput from '../components/SearchInput';
+import { useSearch } from '../hooks/useSearch';
 
 interface Video {
   id: number;
@@ -16,7 +19,6 @@ interface Video {
   created_at: string;
 }
 
-/** 狀態標籤樣式 */
 function statusBadge(status: string) {
   switch (status) {
     case 'completed':
@@ -78,11 +80,14 @@ export default function VideosPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 重新命名
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
 
-  /** 載入影片列表 */
+  const { searchQuery, setSearchQuery, filteredItems: filteredVideos } = useSearch(
+    videos,
+    useCallback((v: Video) => [v.title], []),
+  );
+
   const fetchVideos = useCallback(async () => {
     try {
       const res = await videoApi.list();
@@ -94,12 +99,10 @@ export default function VideosPage() {
     }
   }, []);
 
-  /** 初始載入 */
   useEffect(() => {
     fetchVideos();
   }, [fetchVideos]);
 
-  /** 輪詢下載中的影片狀態 */
   useEffect(() => {
     const hasInProgress = videos.some((v) => v.status === 'pending' || v.status === 'downloading');
     if (hasInProgress) {
@@ -107,7 +110,7 @@ export default function VideosPage() {
         const res = await videoApi.list();
         setVideos(res.data);
         const stillInProgress = (res.data as Video[]).some(
-          (v) => v.status === 'pending' || v.status === 'downloading'
+          (v) => v.status === 'pending' || v.status === 'downloading',
         );
         if (!stillInProgress && pollingRef.current) {
           clearInterval(pollingRef.current);
@@ -123,7 +126,6 @@ export default function VideosPage() {
     };
   }, [videos]);
 
-  /** YouTube 下載 */
   const handleDownload = async () => {
     if (!youtubeUrl.trim()) return;
     setDownloading(true);
@@ -139,7 +141,6 @@ export default function VideosPage() {
     }
   };
 
-  /** 檔案上傳 */
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -156,19 +157,17 @@ export default function VideosPage() {
     }
   };
 
-  /** 開始重新命名 */
   const startRename = (video: Video) => {
     setRenamingId(video.id);
     setRenameTitle(video.title);
   };
 
-  /** 儲存重新命名 */
   const handleRename = async (id: number) => {
     if (!renameTitle.trim()) return;
     try {
       await videoApi.update(id, { title: renameTitle.trim() });
       setVideos((prev) =>
-        prev.map((v) => (v.id === id ? { ...v, title: renameTitle.trim() } : v))
+        prev.map((v) => (v.id === id ? { ...v, title: renameTitle.trim() } : v)),
       );
       setRenamingId(null);
     } catch {
@@ -176,7 +175,6 @@ export default function VideosPage() {
     }
   };
 
-  /** 刪除影片 */
   const handleDelete = async (id: number) => {
     if (!confirm('確定要刪除此影片嗎？')) return;
     try {
@@ -187,29 +185,162 @@ export default function VideosPage() {
     }
   };
 
+  const columns: Column<Video>[] = [
+    {
+      key: 'thumbnail',
+      header: '縮圖',
+      width: 'w-20',
+      render: (v) => (
+        <img
+          src={`/api/videos/${v.id}/thumbnail?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+          alt=""
+          className="w-16 h-9 object-cover rounded bg-gray-200"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+            (e.target as HTMLImageElement).parentElement!.classList.add('flex', 'items-center', 'justify-center');
+            const placeholder = document.createElement('div');
+            placeholder.className = 'w-16 h-9 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs';
+            placeholder.textContent = '無圖';
+            (e.target as HTMLImageElement).parentElement!.appendChild(placeholder);
+          }}
+        />
+      ),
+    },
+    {
+      key: 'title',
+      header: '影片名稱',
+      sortable: true,
+      sortFn: (a, b) => a.title.localeCompare(b.title),
+      render: (v) =>
+        renamingId === v.id ? (
+          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="text"
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRename(v.id);
+                if (e.key === 'Escape') setRenamingId(null);
+              }}
+              autoFocus
+              className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => handleRename(v.id)}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              儲存
+            </button>
+            <button
+              onClick={() => setRenamingId(null)}
+              className="text-xs text-gray-500 hover:text-gray-700"
+            >
+              取消
+            </button>
+          </div>
+        ) : (
+          <span className="font-medium text-gray-900 truncate block max-w-xs">{v.title}</span>
+        ),
+    },
+    {
+      key: 'source_type',
+      header: '來源',
+      sortable: true,
+      width: 'w-28',
+      sortFn: (a, b) => a.source_type.localeCompare(b.source_type),
+      render: (v) => (
+        <span className="text-gray-600">
+          {v.source_type === 'youtube' ? 'YouTube' : '本機上傳'}
+        </span>
+      ),
+    },
+    {
+      key: 'duration',
+      header: '時長',
+      sortable: true,
+      width: 'w-24',
+      sortFn: (a, b) => (a.duration ?? 0) - (b.duration ?? 0),
+      render: (v) => <span className="text-gray-600 tabular-nums">{formatDuration(v.duration)}</span>,
+    },
+    {
+      key: 'status',
+      header: '狀態',
+      sortable: true,
+      width: 'w-44',
+      sortFn: (a, b) => a.status.localeCompare(b.status),
+      render: (v) => (
+        <div>
+          <span
+            className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(v.status)}`}
+          >
+            {statusLabel(v.status)}
+          </span>
+          {(v.status === 'downloading' || v.status === 'pending') && (
+            <div className="mt-1">
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-0.5">
+                <span>
+                  {v.download_progress != null ? `${v.download_progress.toFixed(1)}%` : '準備中...'}
+                </span>
+                <span className="ml-2">
+                  {formatSpeed(v.download_speed)}
+                  {v.download_speed && v.download_eta ? ' · ' : ''}
+                  {formatEta(v.download_eta)}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-blue-500 h-1.5 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${Math.min(v.download_progress ?? 0, 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: 'w-28',
+      render: (v) => (
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => startRename(v)}
+            className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100"
+            title="重新命名"
+          >
+            重新命名
+          </button>
+          <button
+            onClick={() => handleDelete(v.id)}
+            className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50"
+            title="刪除"
+          >
+            刪除
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8">
-        {/* 錯誤提示 */}
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
             {error}
-            <button
-              className="ml-2 font-medium underline"
-              onClick={() => setError('')}
-            >
+            <button className="ml-2 font-medium underline" onClick={() => setError('')}>
               關閉
             </button>
           </div>
         )}
 
         {/* 上傳/下載區 */}
-        <div className="mb-8 rounded-lg bg-white p-6 shadow">
+        <div className="mb-6 rounded-lg bg-white p-6 shadow">
           <h2 className="text-lg font-semibold mb-4">新增影片</h2>
 
-          {/* YouTube 下載 */}
           <div className="flex gap-2 mb-4">
             <input
               type="text"
@@ -228,7 +359,6 @@ export default function VideosPage() {
             </button>
           </div>
 
-          {/* 檔案上傳 */}
           <div className="flex items-center gap-3">
             <input
               ref={fileInputRef}
@@ -248,114 +378,29 @@ export default function VideosPage() {
           </div>
         </div>
 
-        {/* 影片列表 */}
-        {loading ? (
-          <div className="text-center py-12 text-gray-500">載入中...</div>
-        ) : videos.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            尚無影片，請先上傳或下載影片
+        {/* 搜尋列 + 統計 */}
+        <div className="mb-4 flex items-center gap-4">
+          <div className="w-72">
+            <SearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="搜尋影片名稱..."
+            />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {videos.map((video) => (
-              <div
-                key={video.id}
-                className="rounded-lg bg-white shadow hover:shadow-md transition-shadow overflow-hidden"
-              >
-                {/* 卡片主體（可點擊） */}
-                <div
-                  className="p-5 cursor-pointer"
-                  onClick={() => renamingId !== video.id && navigate(`/videos/${video.id}`)}
-                >
-                  {renamingId === video.id ? (
-                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        value={renameTitle}
-                        onChange={(e) => setRenameTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleRename(video.id);
-                          if (e.key === 'Escape') setRenamingId(null);
-                        }}
-                        autoFocus
-                        className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                      <button
-                        onClick={() => handleRename(video.id)}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        儲存
-                      </button>
-                      <button
-                        onClick={() => setRenamingId(null)}
-                        className="text-xs text-gray-500 hover:text-gray-700"
-                      >
-                        取消
-                      </button>
-                    </div>
-                  ) : (
-                    <h3 className="font-semibold text-gray-900 truncate">
-                      {video.title}
-                    </h3>
-                  )}
-                  <div className="mt-2 flex items-center gap-3 text-sm text-gray-500">
-                    <span className="capitalize">{video.source_type === 'youtube' ? 'YouTube' : '本機上傳'}</span>
-                    <span>{formatDuration(video.duration)}</span>
-                  </div>
-                  <div className="mt-2">
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(video.status)}`}
-                    >
-                      {statusLabel(video.status)}
-                    </span>
-                  </div>
+          <span className="text-sm text-gray-500">
+            共 {filteredVideos.length} 部影片
+          </span>
+        </div>
 
-                  {/* 下載進度條 */}
-                  {(video.status === 'downloading' || video.status === 'pending') && (
-                    <div className="mt-3">
-                      <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                        <span>{video.download_progress != null ? `${video.download_progress.toFixed(1)}%` : '準備中...'}</span>
-                        <span>
-                          {formatSpeed(video.download_speed)}
-                          {video.download_speed && video.download_eta ? ' · ' : ''}
-                          {formatEta(video.download_eta)}
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                        <div
-                          className="bg-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
-                          style={{ width: `${Math.min(video.download_progress ?? 0, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 操作列 */}
-                <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      startRename(video);
-                    }}
-                    className="text-sm text-gray-600 hover:text-gray-800"
-                  >
-                    重新命名
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(video.id);
-                    }}
-                    className="text-sm text-red-600 hover:text-red-800"
-                  >
-                    刪除
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* 影片表格 */}
+        <DataTable
+          columns={columns}
+          data={filteredVideos}
+          keyExtractor={(v) => v.id}
+          onRowClick={(v) => renamingId !== v.id && navigate(`/videos/${v.id}`)}
+          emptyMessage="尚無影片，請先上傳或下載影片"
+          loading={loading}
+        />
       </main>
     </div>
   );

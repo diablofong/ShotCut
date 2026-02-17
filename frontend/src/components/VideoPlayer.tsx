@@ -35,6 +35,7 @@ export interface VideoPlayerHandle {
   seekTo: (time: number) => void;
   pause: () => void;
   play: () => void;
+  togglePlay: () => void;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -65,6 +66,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       play: () => {
         playerRef.current?.play();
       },
+      togglePlay: () => {
+        const p = playerRef.current;
+        if (!p) return;
+        if (p.paused()) {
+          p.play();
+        } else {
+          p.pause();
+        }
+      },
     }));
 
     // 初始化 Video.js
@@ -81,6 +91,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         preload: 'auto',
         responsive: true,
         fluid: true,
+        playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2],
         sources: [{ src, type: 'video/mp4' }],
       });
 

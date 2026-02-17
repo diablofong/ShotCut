@@ -46,6 +46,12 @@ async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
         clip.duration = duration
         clip.file_size = os.path.getsize(output_path)
         clip.status = "completed"
+
+        # 產生縮圖（從片段起點截圖）
+        from backend.services.thumbnail_service import generate_thumbnail, get_clip_thumbnail_path
+        thumb_path = get_clip_thumbnail_path(clip.id)
+        if generate_thumbnail(output_path, thumb_path, timestamp=0.5):
+            clip.thumbnail_path = thumb_path
     except subprocess.CalledProcessError as e:
         clip.status = "failed"
         clip.error_message = e.stderr.decode()[:2000] if e.stderr else "FFmpeg 錯誤"
@@ -77,7 +83,10 @@ async def list_clips(
     category: str | None = None,
     player_number: int | None = None,
 ) -> list[Clip]:
-    stmt = select(Clip).join(Mark).options(selectinload(Clip.mark).selectinload(Mark.players))
+    stmt = select(Clip).join(Mark).options(
+        selectinload(Clip.mark).selectinload(Mark.players),
+        selectinload(Clip.video),
+    )
 
     if video_id:
         stmt = stmt.where(Clip.video_id == video_id)

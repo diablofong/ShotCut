@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -6,12 +7,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.db.database import engine
-from backend.routers import auth, users, videos, analysis, marks, clips, highlights, shares
+from backend.db.database import engine, async_session
+from backend.routers import auth, users, videos, marks, clips, highlights, shares
+from backend.services.thumbnail_service import regenerate_missing_thumbnails
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 啟動時補生成缺少的縮圖
+    try:
+        async with async_session() as db:
+            await regenerate_missing_thumbnails(db)
+    except Exception as e:
+        logger.warning("啟動縮圖補生成失敗: %s", str(e))
     yield
     await engine.dispose()
 
@@ -29,7 +39,6 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(videos.router, prefix="/api")
-app.include_router(analysis.router, prefix="/api")
 app.include_router(marks.router, prefix="/api")
 app.include_router(clips.router, prefix="/api")
 app.include_router(highlights.router, prefix="/api")

@@ -13,6 +13,7 @@ class ShareLink(Base):
     highlight_id: Mapped[int] = mapped_column(ForeignKey("highlights.id", ondelete="CASCADE"))
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     access_count: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     highlight = relationship("Highlight", back_populates="share_links")

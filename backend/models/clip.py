@@ -16,6 +16,7 @@ class Clip(Base):
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/processing/completed/failed
+    thumbnail_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

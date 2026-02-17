@@ -15,7 +15,6 @@ HIGHLIGHT_DIR = os.getenv("HIGHLIGHT_DIR", "./highlights")
 CATEGORY_LABELS = {
     "offense": "進攻",
     "defense": "防守",
-    "highlight": "精彩",
     "turnover": "失誤",
 }
 
@@ -106,6 +105,12 @@ async def generate_highlight(
         total_duration = sum(c.duration or 0 for c in clips)
         highlight.duration = total_duration
         highlight.status = "completed"
+
+        # 產生縮圖
+        from backend.services.thumbnail_service import generate_thumbnail, get_highlight_thumbnail_path
+        thumb_path = get_highlight_thumbnail_path(highlight.id)
+        if generate_thumbnail(output_path, thumb_path):
+            highlight.thumbnail_path = thumb_path
     except Exception as e:
         highlight.status = "failed"
         highlight.error_message = str(e)[:2000]
