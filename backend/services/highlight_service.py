@@ -117,9 +117,15 @@ async def generate_highlight(
 
 async def delete_highlight(db: AsyncSession, highlight_id: int) -> None:
     """刪除精華剪輯：實體檔案 + 關聯分享 + DB 記錄"""
-    from backend.models.share import ShareLink
+    from sqlalchemy.orm import selectinload
 
-    highlight = await db.get(Highlight, highlight_id)
+    # 預先載入關聯（避免 async lazy loading 錯誤）
+    stmt = select(Highlight).where(Highlight.id == highlight_id).options(
+        selectinload(Highlight.clips),
+        selectinload(Highlight.share_links),
+    )
+    result = await db.execute(stmt)
+    highlight = result.scalar_one_or_none()
     if not highlight:
         return
 
@@ -127,18 +133,7 @@ async def delete_highlight(db: AsyncSession, highlight_id: int) -> None:
     if highlight.file_path and os.path.exists(highlight.file_path):
         os.remove(highlight.file_path)
 
-    # 刪除關聯的分享連結
-    stmt = select(ShareLink).where(ShareLink.highlight_id == highlight_id)
-    result = await db.execute(stmt)
-    for share in result.scalars().all():
-        await db.delete(share)
-
-    # 刪除關聯的 HighlightClip
-    stmt = select(HighlightClip).where(HighlightClip.highlight_id == highlight_id)
-    result = await db.execute(stmt)
-    for hc in result.scalars().all():
-        await db.delete(hc)
-
+    # cascade="all, delete-orphan" 自動刪除關聯的 HighlightClip 和 ShareLink
     await db.delete(highlight)
     await db.commit()
 

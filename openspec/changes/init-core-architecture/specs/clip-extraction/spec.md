@@ -54,6 +54,17 @@
 - **WHEN** 使用者刪除一個片段
 - **THEN** 系統刪除片段檔案與資料庫記錄
 
+### Requirement: 片段串流（含 Range 請求）
+系統 SHALL 提供片段檔案串流端點，支援 HTTP Range 請求以實現時間軸跳轉。
+
+#### Scenario: 完整串流
+- **WHEN** 使用者請求串流片段（無 Range header）
+- **THEN** 系統回傳完整片段檔案，包含 `Accept-Ranges: bytes` header
+
+#### Scenario: Range 請求（時間軸跳轉）
+- **WHEN** 使用者在播放器中點擊時間軸跳轉
+- **THEN** 瀏覽器發送 Range 請求，系統回傳 206 Partial Content 與正確的位元組範圍
+
 ### Requirement: 下載片段
 系統 SHALL 提供片段檔案下載端點。
 

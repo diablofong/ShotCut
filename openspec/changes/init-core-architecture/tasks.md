@@ -257,3 +257,8 @@
 - [x] 30.1 VideoPlayer 元件新增 `autoplay` prop（預設 false，傳入 Video.js 初始化選項）
 - [x] 30.2 ClipsPage 點擊片段卡片或播放按鈕後自動滾動至預覽區域
 - [x] 30.3 ClipsPage 預覽播放器啟用 autoplay，選擇片段後自動播放
+
+## 31. 修復片段串流時間軸跳轉與精華剪輯刪除
+
+- [x] 31.1 片段串流端點（`/clips/{id}/stream`）加入 HTTP Range 請求支援（與影片串流一致）
+- [x] 31.2 修復精華剪輯刪除：`delete_highlight` 使用 `selectinload` 預載關聯，避免 async lazy loading 錯誤

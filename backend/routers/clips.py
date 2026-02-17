@@ -1,8 +1,8 @@
 import os
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,6 +95,7 @@ async def list_clips(
 @router.get("/clips/{clip_id}/stream")
 async def stream_clip(
     clip_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -104,7 +105,46 @@ async def stream_clip(
     await verify_video_owner(clip.video_id, db, current_user)
     if not clip.file_path or not os.path.exists(clip.file_path):
         raise HTTPException(status_code=404, detail="片段檔案不存在")
-    return FileResponse(clip.file_path, media_type="video/mp4")
+
+    file_path = clip.file_path
+    file_size = os.path.getsize(file_path)
+    range_header = request.headers.get("range")
+
+    if range_header:
+        range_spec = range_header.replace("bytes=", "")
+        parts = range_spec.split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if parts[1] else file_size - 1
+        end = min(end, file_size - 1)
+        content_length = end - start + 1
+
+        def iter_file():
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk = f.read(min(8192, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return StreamingResponse(
+            iter_file(),
+            status_code=206,
+            media_type="video/mp4",
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(content_length),
+            },
+        )
+
+    return FileResponse(
+        file_path,
+        media_type="video/mp4",
+        headers={"Accept-Ranges": "bytes"},
+    )
 
 
 @router.get("/clips/{clip_id}/download")
