@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.db.database import get_db
+from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.mark import Mark, MarkPlayer
+from backend.models.user import User
 
 router = APIRouter(tags=["marks"])
 
@@ -51,7 +53,10 @@ async def create_mark(
     video_id: int,
     req: MarkCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    await verify_video_owner(video_id, db, current_user)
+
     valid_categories = {"offense", "defense", "highlight", "turnover", "untagged"}
     if req.category not in valid_categories:
         raise HTTPException(status_code=400, detail=f"分類必須為: {', '.join(valid_categories)}")
@@ -78,7 +83,12 @@ async def create_mark(
 
 
 @router.get("/videos/{video_id}/marks", response_model=list[MarkOut])
-async def list_marks(video_id: int, db: AsyncSession = Depends(get_db)):
+async def list_marks(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await verify_video_owner(video_id, db, current_user)
     result = await db.execute(
         select(Mark)
         .options(selectinload(Mark.players))
@@ -93,6 +103,7 @@ async def update_mark(
     mark_id: int,
     req: MarkUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
         select(Mark).options(selectinload(Mark.players)).where(Mark.id == mark_id)
@@ -100,6 +111,8 @@ async def update_mark(
     mark = result.scalar_one_or_none()
     if not mark:
         raise HTTPException(status_code=404, detail="標記不存在")
+
+    await verify_video_owner(mark.video_id, db, current_user)
 
     if req.start_time is not None:
         mark.start_time = req.start_time
@@ -109,7 +122,6 @@ async def update_mark(
         mark.category = req.category
 
     if req.player_numbers is not None:
-        # 清除舊的球員關聯
         for p in mark.players:
             await db.delete(p)
         await db.flush()
@@ -126,10 +138,17 @@ async def update_mark(
 
 
 @router.delete("/marks/{mark_id}")
-async def delete_mark(mark_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_mark(
+    mark_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     mark = await db.get(Mark, mark_id)
     if not mark:
         raise HTTPException(status_code=404, detail="標記不存在")
+
+    await verify_video_owner(mark.video_id, db, current_user)
+
     await db.delete(mark)
     await db.commit()
     return {"ok": True}

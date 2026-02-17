@@ -4,6 +4,49 @@ const api = axios.create({
   baseURL: '/api',
 });
 
+// 請求攔截器：附加 JWT token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// 回應攔截器：401 自動導向登入
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && !error.config.url?.includes('/auth/login')) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  },
+);
+
+// 認證
+export const authApi = {
+  login: (username: string, password: string) => {
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('password', password);
+    return api.post('/auth/login', params, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  },
+  me: () => api.get('/auth/me'),
+};
+
+// 使用者管理
+export const userApi = {
+  list: () => api.get('/users'),
+  create: (data: { username: string; password: string; display_name: string; role: string }) =>
+    api.post('/users', data),
+  update: (id: number, data: Record<string, unknown>) => api.put(`/users/${id}`, data),
+  delete: (id: number) => api.delete(`/users/${id}`),
+};
+
 // 影片
 export const videoApi = {
   list: () => api.get('/videos'),

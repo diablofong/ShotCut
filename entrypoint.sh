@@ -22,5 +22,8 @@ echo "MariaDB 已就緒"
 echo "執行資料庫 migration..."
 alembic upgrade head
 
+echo "檢查初始管理員帳號..."
+python -m backend.scripts.seed_admin
+
 echo "啟動 ShotCut API..."
 exec uvicorn backend.main:app --host 0.0.0.0 --port 8000

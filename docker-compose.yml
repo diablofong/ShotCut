@@ -10,7 +10,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - db_data:/var/lib/mysql
+      - ./data/db:/var/lib/mysql
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -25,19 +25,17 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin1234}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
       UPLOAD_DIR: /app/uploads
       CLIP_DIR: /app/clips
       HIGHLIGHT_DIR: /app/highlights
     volumes:
-      - uploads_data:/app/uploads
-      - clips_data:/app/clips
-      - highlights_data:/app/highlights
+      - ./data/uploads:/app/uploads
+      - ./data/clips:/app/clips
+      - ./data/highlights:/app/highlights
     depends_on:
       db:
         condition: service_healthy
 
-volumes:
-  db_data:
-  uploads_data:
-  clips_data:
-  highlights_data:

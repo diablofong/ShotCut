@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.database import get_db
+from backend.auth.dependencies import get_current_user
+from backend.models.user import User
 from backend.services import highlight_service
 
 router = APIRouter(tags=["highlights"])
@@ -29,13 +31,19 @@ class HighlightOut(BaseModel):
 
 
 @router.post("/highlights/generate", response_model=HighlightOut)
-async def generate_highlight(req: GenerateRequest, db: AsyncSession = Depends(get_db)):
+async def generate_highlight(
+    req: GenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user_id = None if current_user.role == "admin" else current_user.id
     try:
         highlight = await highlight_service.generate_highlight(
             db,
             player_number=req.player_number,
             category=req.category,
             title=req.title,
+            user_id=user_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -43,5 +51,10 @@ async def generate_highlight(req: GenerateRequest, db: AsyncSession = Depends(ge
 
 
 @router.get("/highlights", response_model=list[HighlightOut])
-async def list_highlights(db: AsyncSession = Depends(get_db)):
-    return await highlight_service.list_highlights(db)
+async def list_highlights(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role == "admin":
+        return await highlight_service.list_highlights(db)
+    return await highlight_service.list_highlights(db, owner_id=current_user.id)

@@ -1,0 +1,52 @@
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.db.database import get_db
+from backend.auth.security import decode_access_token
+from backend.models.user import User
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="認證失敗",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except Exception:
+        raise credentials_exception
+
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise credentials_exception
+    return user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理員權限",
+        )
+    return current_user
+
+
+async def verify_video_owner(video_id: int, db: AsyncSession, current_user: User):
+    from backend.models.video import Video
+
+    video = await db.get(Video, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="影片不存在")
+    if current_user.role != "admin" and video.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="無權存取此影片")
+    return video

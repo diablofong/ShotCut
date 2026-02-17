@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.db.database import engine
-from backend.routers import videos, analysis, marks, clips, highlights, shares
+from backend.routers import auth, users, videos, analysis, marks, clips, highlights, shares
 
 
 @asynccontextmanager
@@ -25,6 +25,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 app.include_router(videos.router, prefix="/api")
 app.include_router(analysis.router, prefix="/api")
 app.include_router(marks.router, prefix="/api")

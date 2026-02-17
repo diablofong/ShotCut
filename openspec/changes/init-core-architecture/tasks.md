@@ -95,3 +95,55 @@
 - [ ] 10.2 驗證 docker-compose up 一鍵啟動正常運作（需 Docker 環境）
 - [ ] 10.3 驗證容器重啟後資料持久化（MariaDB volume + 影片檔案 volume）（需 Docker 環境）
 - [x] 10.4 確認前端所有頁面路由正常、API 串接完整（TypeScript 檢查通過、Vite 建置成功）
+
+## 11. 後端認證基礎設施（user-auth）
+
+- [x] 11.1 新增 backend/auth/security.py（密碼雜湊 bcrypt + JWT 簽發/驗證 HS256）
+- [x] 11.2 新增 backend/auth/dependencies.py（get_current_user、require_admin、verify_video_owner 依賴項）
+- [x] 11.3 新增 backend/models/user.py（User model：id、username、hashed_password、display_name、role、is_active、created_at）
+- [x] 11.4 更新 backend/models/__init__.py 匯出 User model
+- [x] 11.5 更新 backend/requirements.txt 加入 python-jose[cryptography]、passlib[bcrypt]、bcrypt
+- [x] 11.6 更新 Alembic migration：在初始 migration 中加入 users 表 + videos 和 highlights 新增 owner_id 欄位（nullable FK）
+
+## 12. 後端認證與使用者管理 API
+
+- [x] 12.1 新增 backend/routers/auth.py（POST /api/auth/login 回傳 JWT、GET /api/auth/me 回傳當前使用者）
+- [x] 12.2 新增 backend/routers/users.py（管理員專用 CRUD：GET/POST/PUT/DELETE /api/users）
+- [x] 12.3 更新 backend/main.py 註冊 auth.router 和 users.router
+- [x] 12.4 新增 backend/scripts/seed_admin.py（初始管理員種子腳本，從環境變數讀取帳密）
+
+## 13. 後端所有權欄位與服務修改
+
+- [x] 13.1 修改 backend/models/video.py：新增 owner_id FK 欄位 + owner relationship
+- [x] 13.2 修改 backend/models/highlight.py：新增 owner_id FK 欄位 + owner relationship
+- [x] 13.3 修改 backend/services/video_service.py：create_download/create_upload 接受 user_id 設定 owner_id、list_videos 支援 owner_id 過濾
+- [x] 13.4 修改 backend/services/highlight_service.py：generate_highlight 接受 user_id 設定 owner_id、list 支援 owner_id 過濾
+
+## 14. 後端路由加入認證保護
+
+- [x] 14.1 修改 backend/routers/videos.py：所有端點注入 get_current_user，新增/上傳設 owner_id，列表/詳情/刪除加所有權驗證
+- [x] 14.2 修改 backend/routers/analysis.py：所有端點注入 get_current_user，驗證影片所有權
+- [x] 14.3 修改 backend/routers/marks.py：所有端點注入 get_current_user，透過 video 鏈驗證所有權
+- [x] 14.4 修改 backend/routers/clips.py：所有端點注入 get_current_user，列表過濾 + 刪除所有權驗證
+- [x] 14.5 修改 backend/routers/highlights.py：所有端點注入 get_current_user，generate 傳 user_id，列表加 owner_id 過濾
+- [x] 14.6 修改 backend/routers/shares.py：POST/DELETE 加 auth 與所有權驗證，GET /shares/{token} 保持公開免登入
+
+## 15. 前端認證基礎設施
+
+- [x] 15.1 新增 frontend/src/contexts/AuthContext.tsx（AuthProvider、useAuth hook、login/logout 邏輯、localStorage token 管理）
+- [x] 15.2 修改 frontend/src/services/api.ts：請求攔截器附加 JWT token、回應攔截器處理 401 導向登入、新增 authApi 和 userApi
+- [x] 15.3 新增 frontend/src/components/ProtectedRoute.tsx（路由守衛元件，支援 requireAdmin prop）
+
+## 16. 前端頁面
+
+- [x] 16.1 新增 frontend/src/pages/LoginPage.tsx（登入表單、錯誤提示、登入後重導向首頁）
+- [x] 16.2 新增 frontend/src/pages/UsersPage.tsx（管理員專屬：使用者列表、新增表單、停用/刪除）
+- [x] 16.3 修改 frontend/src/App.tsx：包裹 AuthProvider、登入路由、ProtectedRoute 保護既有路由、SharePage 保持公開、新增 /users 路由
+- [x] 16.4 修改所有頁面 header：顯示當前使用者名稱、管理員顯示「使用者管理」連結、登出按鈕
+
+## 17. 部署設定與整合測試
+
+- [x] 17.1 更新 .env.example：新增 ADMIN_USERNAME、ADMIN_PASSWORD、JWT_EXPIRE_MINUTES
+- [x] 17.2 更新 entrypoint.sh：alembic upgrade head 後新增 python -m backend.scripts.seed_admin
+- [x] 17.3 更新 docker-compose.yml：環境變數傳遞 ADMIN_USERNAME、ADMIN_PASSWORD、JWT_EXPIRE_MINUTES、bind mount 掛載至 ./data/
+- [x] 17.4 完整流程測試：登入 API 驗證、JWT 認證、未認證 401、admin 種子建立、前端頁面正常載入

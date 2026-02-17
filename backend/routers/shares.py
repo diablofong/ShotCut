@@ -8,8 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.database import get_db
+from backend.auth.dependencies import get_current_user
 from backend.models.share_link import ShareLink
 from backend.models.highlight import Highlight
+from backend.models.user import User
 
 router = APIRouter(tags=["shares"])
 
@@ -28,10 +30,17 @@ class ShareOut(BaseModel):
 
 
 @router.post("/shares", response_model=ShareOut)
-async def create_share(req: ShareCreate, db: AsyncSession = Depends(get_db)):
+async def create_share(
+    req: ShareCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     highlight = await db.get(Highlight, req.highlight_id)
     if not highlight:
         raise HTTPException(status_code=404, detail="精華剪輯不存在")
+
+    if current_user.role != "admin" and highlight.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="無權分享此精華剪輯")
 
     token = secrets.token_urlsafe(32)
     share = ShareLink(highlight_id=req.highlight_id, token=token)
@@ -43,12 +52,12 @@ async def create_share(req: ShareCreate, db: AsyncSession = Depends(get_db)):
 
 @router.get("/shares/{token}")
 async def get_share(token: str, db: AsyncSession = Depends(get_db)):
+    """公開端點：透過 token 存取分享內容，不需登入"""
     result = await db.execute(select(ShareLink).where(ShareLink.token == token))
     share = result.scalar_one_or_none()
     if not share:
         raise HTTPException(status_code=404, detail="分享連結不存在")
 
-    # 更新存取計數
     share.access_count += 1
     await db.commit()
 
@@ -64,10 +73,19 @@ async def get_share(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/shares/{share_id}")
-async def delete_share(share_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_share(
+    share_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     share = await db.get(ShareLink, share_id)
     if not share:
         raise HTTPException(status_code=404, detail="分享連結不存在")
+
+    highlight = await db.get(Highlight, share.highlight_id)
+    if current_user.role != "admin" and (not highlight or highlight.owner_id != current_user.id):
+        raise HTTPException(status_code=403, detail="無權刪除此分享連結")
+
     await db.delete(share)
     await db.commit()
     return {"ok": True}

@@ -5,20 +5,22 @@ import { videoApi } from '../services/api';
 interface Video {
   id: number;
   title: string;
-  source: string;
+  source_type: string;
   status: string;
   duration: number | null;
+  error_message: string | null;
   created_at: string;
 }
 
 /** 狀態標籤樣式 */
 function statusBadge(status: string) {
   switch (status) {
-    case 'ready':
+    case 'completed':
       return 'bg-green-100 text-green-800';
+    case 'pending':
     case 'downloading':
       return 'bg-yellow-100 text-yellow-800';
-    case 'error':
+    case 'failed':
       return 'bg-red-100 text-red-800';
     default:
       return 'bg-gray-100 text-gray-800';
@@ -27,12 +29,14 @@ function statusBadge(status: string) {
 
 function statusLabel(status: string) {
   switch (status) {
-    case 'ready':
+    case 'completed':
       return '就緒';
+    case 'pending':
+      return '等待中';
     case 'downloading':
       return '下載中';
-    case 'error':
-      return '錯誤';
+    case 'failed':
+      return '失敗';
     default:
       return status;
   }
@@ -75,15 +79,15 @@ export default function VideosPage() {
 
   /** 輪詢下載中的影片狀態 */
   useEffect(() => {
-    const hasDownloading = videos.some((v) => v.status === 'downloading');
-    if (hasDownloading) {
+    const hasInProgress = videos.some((v) => v.status === 'pending' || v.status === 'downloading');
+    if (hasInProgress) {
       pollingRef.current = setInterval(async () => {
         const res = await videoApi.list();
         setVideos(res.data);
-        const stillDownloading = (res.data as Video[]).some(
-          (v) => v.status === 'downloading'
+        const stillInProgress = (res.data as Video[]).some(
+          (v) => v.status === 'pending' || v.status === 'downloading'
         );
-        if (!stillDownloading && pollingRef.current) {
+        if (!stillInProgress && pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
@@ -240,7 +244,7 @@ export default function VideosPage() {
                     {video.title}
                   </h3>
                   <div className="mt-2 flex items-center gap-3 text-sm text-gray-500">
-                    <span className="capitalize">{video.source === 'youtube' ? 'YouTube' : '本機上傳'}</span>
+                    <span className="capitalize">{video.source_type === 'youtube' ? 'YouTube' : '本機上傳'}</span>
                     <span>{formatDuration(video.duration)}</span>
                   </div>
                   <div className="mt-2">

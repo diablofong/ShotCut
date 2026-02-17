@@ -21,11 +21,11 @@ def _video_dir(video_id: int) -> str:
     return path
 
 
-async def create_download(db: AsyncSession, url: str) -> Video:
+async def create_download(db: AsyncSession, url: str, user_id: int | None = None) -> Video:
     if not _is_youtube_url(url):
         raise ValueError("僅支援 YouTube 連結")
 
-    video = Video(title="下載中...", source_type="youtube", source_url=url, status="pending")
+    video = Video(title="下載中...", source_type="youtube", source_url=url, status="pending", owner_id=user_id)
     db.add(video)
     await db.commit()
     await db.refresh(video)
@@ -62,6 +62,7 @@ async def _async_download(video_id: int, url: str, db_url: str):
                 "outtmpl": output_path,
                 "quiet": True,
                 "no_warnings": True,
+                "js_runtimes": "nodejs",
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -88,13 +89,13 @@ async def _async_download(video_id: int, url: str, db_url: str):
     await engine.dispose()
 
 
-async def create_upload(db: AsyncSession, filename: str, content: bytes) -> Video:
+async def create_upload(db: AsyncSession, filename: str, content: bytes, user_id: int | None = None) -> Video:
     allowed_ext = {".mp4", ".avi", ".mov", ".mkv"}
     ext = os.path.splitext(filename)[1].lower()
     if ext not in allowed_ext:
         raise ValueError(f"不支援的檔案格式: {ext}")
 
-    video = Video(title=filename, source_type="upload", status="completed")
+    video = Video(title=filename, source_type="upload", status="completed", owner_id=user_id)
     db.add(video)
     await db.commit()
     await db.refresh(video)
@@ -111,8 +112,11 @@ async def create_upload(db: AsyncSession, filename: str, content: bytes) -> Vide
     return video
 
 
-async def list_videos(db: AsyncSession) -> list[Video]:
-    result = await db.execute(select(Video).order_by(Video.created_at.desc()))
+async def list_videos(db: AsyncSession, owner_id: int | None = None) -> list[Video]:
+    stmt = select(Video).order_by(Video.created_at.desc())
+    if owner_id is not None:
+        stmt = stmt.where(Video.owner_id == owner_id)
+    result = await db.execute(stmt)
     return list(result.scalars().all())
 
 

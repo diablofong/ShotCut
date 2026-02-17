@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.database import get_db
+from backend.auth.dependencies import get_current_user, verify_video_owner
+from backend.models.user import User
 from backend.services import video_service
 
 router = APIRouter(tags=["videos"])
@@ -33,9 +35,10 @@ async def download_video(
     req: DownloadRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        video = await video_service.create_download(db, req.url)
+        video = await video_service.create_download(db, req.url, user_id=current_user.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -48,30 +51,43 @@ async def download_video(
 async def upload_video(
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     content = await file.read()
     try:
-        video = await video_service.create_upload(db, file.filename or "video.mp4", content)
+        video = await video_service.create_upload(db, file.filename or "video.mp4", content, user_id=current_user.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return video
 
 
 @router.get("/videos", response_model=list[VideoOut])
-async def list_videos(db: AsyncSession = Depends(get_db)):
-    return await video_service.list_videos(db)
+async def list_videos(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role == "admin":
+        return await video_service.list_videos(db)
+    return await video_service.list_videos(db, owner_id=current_user.id)
 
 
 @router.get("/videos/{video_id}", response_model=VideoOut)
-async def get_video(video_id: int, db: AsyncSession = Depends(get_db)):
-    video = await video_service.get_video(db, video_id)
-    if not video:
-        raise HTTPException(status_code=404, detail="影片不存在")
+async def get_video(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    video = await verify_video_owner(video_id, db, current_user)
     return video
 
 
 @router.delete("/videos/{video_id}")
-async def delete_video(video_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_video(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await verify_video_owner(video_id, db, current_user)
     deleted = await video_service.delete_video(db, video_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="影片不存在")
@@ -79,8 +95,10 @@ async def delete_video(video_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/videos/{video_id}/status", response_model=VideoOut)
-async def video_status(video_id: int, db: AsyncSession = Depends(get_db)):
-    video = await video_service.get_video(db, video_id)
-    if not video:
-        raise HTTPException(status_code=404, detail="影片不存在")
+async def video_status(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    video = await verify_video_owner(video_id, db, current_user)
     return video

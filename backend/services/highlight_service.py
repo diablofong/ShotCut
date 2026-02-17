@@ -17,10 +17,15 @@ async def generate_highlight(
     player_number: int | None = None,
     category: str | None = None,
     title: str | None = None,
+    user_id: int | None = None,
 ) -> Highlight:
     """依球員/標籤篩選片段，合併為精華剪輯"""
     # 篩選符合條件的片段
-    stmt = select(Clip).where(Clip.status == "completed").join(Mark)
+    from backend.models.video import Video
+    stmt = select(Clip).where(Clip.status == "completed").join(Mark).join(Video)
+
+    if user_id is not None:
+        stmt = stmt.where(Video.owner_id == user_id)
 
     if category:
         stmt = stmt.where(Mark.category == category)
@@ -51,6 +56,7 @@ async def generate_highlight(
         filter_player=player_number,
         filter_category=category,
         status="processing",
+        owner_id=user_id,
     )
     db.add(highlight)
     await db.commit()
@@ -101,6 +107,9 @@ async def generate_highlight(
     return highlight
 
 
-async def list_highlights(db: AsyncSession) -> list[Highlight]:
-    result = await db.execute(select(Highlight).order_by(Highlight.created_at.desc()))
+async def list_highlights(db: AsyncSession, owner_id: int | None = None) -> list[Highlight]:
+    stmt = select(Highlight).order_by(Highlight.created_at.desc())
+    if owner_id is not None:
+        stmt = stmt.where(Highlight.owner_id == owner_id)
+    result = await db.execute(stmt)
     return list(result.scalars().all())

@@ -16,7 +16,7 @@
 
 #### Scenario: 建置應用程式映像
 - **WHEN** 執行 Docker 映像建置
-- **THEN** 映像包含 Python 環境、所有 pip 依賴、Node.js 建置的前端 dist、FFmpeg、yt-dlp
+- **THEN** 映像包含 Python 環境、所有 pip 依賴、Node.js 建置的前端 dist、FFmpeg、yt-dlp、Node.js runtime（yt-dlp YouTube 解析所需）
 
 #### Scenario: 生產環境運行
 - **WHEN** 應用程式容器啟動
@@ -38,14 +38,14 @@
 
 #### Scenario: 使用範本配置
 - **WHEN** 使用者複製 .env.example 為 .env 並填入設定
-- **THEN** docker-compose 讀取 .env 中的資料庫密碼、連接埠等設定
+- **THEN** docker-compose 讀取 .env 中的資料庫密碼、連接埠、管理員帳密、JWT 過期時間等設定
 
 ### Requirement: 影片檔案掛載
 系統 SHALL 將 uploads/ 與 clips/ 目錄掛載為 Docker volume，確保影片檔案持久化。
 
 #### Scenario: 影片檔案持久化
 - **WHEN** 容器重啟或重建
-- **THEN** uploads/ 與 clips/ 中的影片檔案透過 volume 掛載保留
+- **THEN** uploads/、clips/、highlights/ 中的影片檔案透過 bind mount（./data/）保留
 
 ### Requirement: 開發模式支援
 系統 SHALL 支援開發模式，原始碼掛載至容器內並支援熱重載。

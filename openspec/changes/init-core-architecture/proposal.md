@@ -10,7 +10,8 @@ ShotCut 是一款針對籃球比賽的影片標記與片段擷取工具，旨在
 - 新增 **片段擷取模組**：基於標記時間點，使用 FFmpeg 自動切出影片片段
 - 新增 **精華剪輯模組**：依球員或標籤自動合併片段，產出個人精華剪輯影片
 - 新增 **分享模組**：產生可分享的連結，供教練與家長瀏覽精華剪輯
-- 新增 **前端應用**：React + TypeScript + Vite + Tailwind CSS + Video.js，包含影片播放器、標記操作介面、管理頁面
+- 新增 **使用者認證與權限控制**：JWT 身份驗證、bcrypt 密碼雜湊、兩層角色（admin / user）、資源所有權機制
+- 新增 **前端應用**：React + TypeScript + Vite + Tailwind CSS + Video.js，包含影片播放器、標記操作介面、管理頁面、登入頁面、使用者管理頁面
 - 新增 **Docker 容器化部署**：docker-compose 編排前端、後端、MariaDB、FFmpeg 工作環境
 - **BREAKING**：資料庫從 SQLite 改為 MariaDB，使用 SQLAlchemy async + asyncmy 作為 ORM/驅動
 - 更新 `requirements.txt`：移除 aiosqlite，新增 sqlalchemy[asyncio]、asyncmy、yt-dlp、librosa、scipy
@@ -25,7 +26,8 @@ ShotCut 是一款針對籃球比賽的影片標記與片段擷取工具，旨在
 - `clip-extraction`：片段擷取 -- 基於標記資料，透過 FFmpeg 精確切割原始影片，產出獨立片段檔案並記錄中繼資料。
 - `highlight-generation`：精華剪輯產出 -- 依球員編號或標籤篩選片段，自動合併排序為連續的精華剪輯影片。
 - `sharing`：分享連結 -- 產生具有唯一識別碼的分享連結，支援存取權限控制，供教練與家長透過瀏覽器觀看精華剪輯。
-- `frontend-app`：前端應用 -- React SPA，包含影片播放器（Video.js）、標記時間軸操作介面、影片管理列表、精華剪輯瀏覽、分享頁面。
+- `user-auth`：使用者認證與權限控制 -- JWT 身份驗證（HS256）、bcrypt 密碼雜湊、兩層角色（admin / user）、資源所有權機制（owner_id）、管理員帳號種子腳本、前端登入流程與路由保護。
+- `frontend-app`：前端應用 -- React SPA，包含影片播放器（Video.js）、標記時間軸操作介面、影片管理列表、精華剪輯瀏覽、分享頁面、登入頁面、使用者管理頁面。
 - `docker-deploy`：Docker 容器化部署 -- Dockerfile（前端/後端）、docker-compose.yml 編排所有服務（前端、後端 API、MariaDB、影片處理 worker）。
 
 ### Modified Capabilities
@@ -35,18 +37,18 @@ ShotCut 是一款針對籃球比賽的影片標記與片段擷取工具，旨在
 ## Impact
 
 ### 受影響的程式碼
-- `backend/`：全部模組皆為新建 -- models、routers、services、db、main.py
-- `frontend/`：全部為新建 -- React 專案初始化、元件、頁面、服務層
-- 專案根目錄：新增 Dockerfile、docker-compose.yml、.env.example
+- `backend/`：全部模組皆為新建 -- models、routers、services、db、auth、scripts、main.py
+- `frontend/`：全部為新建 -- React 專案初始化、元件、頁面、contexts、服務層
+- 專案根目錄：新增 Dockerfile、docker-compose.yml、.env.example、entrypoint.sh
 
 ### API
 - 新增完整 REST API：影片管理、音訊分析、標記 CRUD、片段擷取、精華剪輯、分享連結
 
 ### 相依套件
-- **後端新增**：sqlalchemy[asyncio]、asyncmy、yt-dlp、librosa、scipy、alembic
+- **後端新增**：sqlalchemy[asyncio]、asyncmy、yt-dlp、librosa、scipy、alembic、python-jose[cryptography]、passlib[bcrypt]、bcrypt
 - **後端移除**：aiosqlite
 - **前端新增**：react、react-dom、typescript、vite、tailwindcss、video.js、axios、react-router-dom
-- **系統依賴**：FFmpeg（容器內安裝）、MariaDB（docker-compose 服務）
+- **系統依賴**：FFmpeg（容器內安裝）、Node.js（yt-dlp JS runtime）、MariaDB（docker-compose 服務）
 
 ### 基礎設施
 - Docker + docker-compose 為正式部署方式

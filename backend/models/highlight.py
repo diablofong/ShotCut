@@ -18,8 +18,10 @@ class Highlight(Base):
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/processing/completed/failed
     error_message: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    owner = relationship("User", back_populates="highlights")
     clips = relationship("HighlightClip", back_populates="highlight", cascade="all, delete-orphan")
     share_links = relationship("ShareLink", back_populates="highlight", cascade="all, delete-orphan")
 
