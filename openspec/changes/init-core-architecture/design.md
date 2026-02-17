@@ -26,7 +26,7 @@ ShotCut 是一款籃球比賽影片標記與片段擷取工具，目前專案僅
 - 即時多人協作標記
 - 雲端物件儲存（S3 等，初版使用本機檔案系統）
 - 行動裝置原生 App
-- AI 自動辨識球員或戰術
+- AI 自動辨識球員或戰術（列入未來規劃，見 Future 章節）
 
 ## Decisions
 
@@ -160,3 +160,19 @@ highlights/
 
 **[大檔案記憶體]** 音訊分析載入完整音訊可能佔用大量記憶體
 → librosa 支援串流載入（stream=True）；分段處理長音訊
+
+## Future
+
+### 視覺偵測模組（YOLO 籃球/球員偵測）
+
+**研究結論：**
+- YOLOv8/v11 COCO 預訓練模型含 `sports ball`（類別 32），可開箱即用偵測籃球
+- GitHub 有多個專門專案：AI-Basketball-Shot-Detection-Tracker、AI-Basketball-Referee 等
+- 學術模型 BGS-YOLO 達 93.2% mAP，專門針對籃球優化
+
+**推薦路徑：**
+1. 先用官方 YOLOv8 COCO 模型做 PoC 驗證
+2. 視效果微調或採用 BGS-YOLO
+3. 可與現有音訊分析並行，雙通道提高偵測準確度
+
+**啟動時：** 建立新的 OpenSpec change（如 `visual-detection`）
