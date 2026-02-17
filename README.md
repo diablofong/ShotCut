@@ -82,17 +82,32 @@ npm run dev
 
 ```
 ShotCut/
-├── backend/            # FastAPI 後端
-│   ├── models/         # SQLAlchemy 資料模型
-│   ├── routers/        # API 路由
-│   ├── services/       # 業務邏輯
-│   └── main.py         # 應用程式進入點
-├── frontend/           # React 前端
+├── backend/                # FastAPI 後端
+│   ├── auth/               # JWT 認證與權限控制
+│   ├── db/                 # 資料庫連線設定
+│   ├── models/             # SQLAlchemy 資料模型
+│   ├── routers/            # API 路由
+│   ├── scripts/            # 管理腳本（種子資料等）
+│   ├── services/           # 業務邏輯
+│   └── main.py             # 應用程式進入點
+├── frontend/               # React 前端
 │   └── src/
-├── alembic/            # 資料庫遷移
-├── uploads/            # 上傳影片存放（git 忽略）
-├── clips/              # 擷取片段存放（git 忽略）
-├── docker-compose.yml  # 生產環境部署
+│       ├── components/     # 共用元件
+│       ├── contexts/       # React Context（認證等）
+│       ├── hooks/          # 自訂 Hooks
+│       ├── pages/          # 頁面元件
+│       └── services/       # API 服務層
+├── alembic/                # 資料庫遷移
+├── data/                   # 運行時資料（git 忽略）
+│   ├── uploads/            # 上傳影片
+│   ├── clips/              # 擷取片段
+│   ├── highlights/         # 精華剪輯
+│   ├── thumbnails/         # 縮圖快取
+│   └── db/                 # MariaDB 資料
+├── openspec/               # OpenSpec 規格文件
+│   ├── specs/              # 主規格（各模組 spec）
+│   └── changes/            # 變更記錄與歸檔
+├── docker-compose.yml      # 生產環境部署
 ├── docker-compose.dev.yml  # 開發環境
 └── Dockerfile
 ```
