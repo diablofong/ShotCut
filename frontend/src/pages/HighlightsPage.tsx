@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { highlightApi, shareApi, clipApi } from '../services/api';
 import VideoPlayer, { type VideoPlayerHandle } from '../components/VideoPlayer';
+import Navbar from '../components/Navbar';
 
 interface Highlight {
   id: number;
@@ -121,6 +121,18 @@ export default function HighlightsPage() {
     }
   };
 
+  /** 刪除精華剪輯 */
+  const handleDelete = async (highlightId: number) => {
+    if (!confirm('確定要刪除此精華剪輯嗎？此操作無法復原。')) return;
+    try {
+      await highlightApi.delete(highlightId);
+      setHighlights((prev) => prev.filter((hl) => hl.id !== highlightId));
+      if (playingHighlight?.id === highlightId) setPlayingHighlight(null);
+    } catch {
+      setError('刪除精華剪輯失敗');
+    }
+  };
+
   /** 複製分享連結 */
   const handleCopyLink = (highlightId: number) => {
     const share = shares[highlightId];
@@ -148,22 +160,7 @@ export default function HighlightsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 頂部導航 */}
-      <header className="bg-white shadow">
-        <div className="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/" className="text-xl font-bold text-gray-900 hover:text-blue-600">
-              ShotCut
-            </Link>
-            <span className="text-gray-400">/</span>
-            <h1 className="text-xl font-semibold text-gray-800">精華剪輯</h1>
-          </div>
-          <nav className="flex gap-4 text-sm">
-            <Link to="/videos" className="text-gray-600 hover:text-blue-600">影片管理</Link>
-            <Link to="/clips" className="text-gray-600 hover:text-blue-600">片段管理</Link>
-          </nav>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8">
         {/* 錯誤提示 */}
@@ -267,7 +264,7 @@ export default function HighlightsPage() {
             <div className="max-w-3xl mx-auto">
               <VideoPlayer
                 ref={playerRef}
-                src={`/api/highlights/${playingHighlight.id}/stream`}
+                src={`/api/highlights/${playingHighlight.id}/stream?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
               />
             </div>
           </div>
@@ -334,6 +331,12 @@ export default function HighlightsPage() {
                     播放
                   </button>
                   <div className="flex items-center gap-3">
+                    <a
+                      href={`/api/highlights/${hl.id}/download?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                      className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                    >
+                      下載
+                    </a>
                     {shares[hl.id] ? (
                       <button
                         onClick={() => handleCopyLink(hl.id)}
@@ -349,6 +352,12 @@ export default function HighlightsPage() {
                         建立分享
                       </button>
                     )}
+                    <button
+                      onClick={() => handleDelete(hl.id)}
+                      className="text-sm text-red-500 hover:text-red-700 font-medium"
+                    >
+                      刪除
+                    </button>
                   </div>
                 </div>
               </div>

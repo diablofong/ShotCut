@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, Float, Integer, BigInteger, DateTime, func
+from sqlalchemy import ForeignKey, String, Float, Integer, BigInteger, DateTime, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
@@ -13,6 +13,8 @@ class Highlight(Base):
     title: Mapped[str] = mapped_column(String(500))
     filter_player: Mapped[int | None] = mapped_column(Integer, nullable=True)
     filter_category: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    filter_players: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: [7, 11]
+    filter_categories: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: ["offense", "defense"]
     file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

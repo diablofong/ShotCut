@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, Float, BigInteger, DateTime, func
+from sqlalchemy import ForeignKey, Integer, String, Float, BigInteger, DateTime, func, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
@@ -19,6 +19,8 @@ class Video(Base):
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     download_progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    download_speed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    download_eta: Mapped[int | None] = mapped_column(Integer, nullable=True)
     owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

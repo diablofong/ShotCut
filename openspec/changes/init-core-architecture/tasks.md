@@ -147,3 +147,95 @@
 - [x] 17.2 更新 entrypoint.sh：alembic upgrade head 後新增 python -m backend.scripts.seed_admin
 - [x] 17.3 更新 docker-compose.yml：環境變數傳遞 ADMIN_USERNAME、ADMIN_PASSWORD、JWT_EXPIRE_MINUTES、bind mount 掛載至 ./data/
 - [x] 17.4 完整流程測試：登入 API 驗證、JWT 認證、未認證 401、admin 種子建立、前端頁面正常載入
+
+## 18. 修復標記建立前後端對接
+
+- [x] 18.1 Mark model 新增 `label` 欄位（String(200), default=""）
+- [x] 18.2 MarkCreate 支援 `time`+`start_offset`+`end_offset`（自動轉 start_time/end_time）、`label` 欄位
+- [x] 18.3 MarkOut 回傳 `time`、`label`、`start_offset`、`end_offset`（由 start_time/end_time 反算）
+- [x] 18.4 MarkUpdate 同步支援 `label` 更新
+- [x] 18.5 產生 Alembic migration 新增 marks.label 欄位
+
+## 19. 修復片段篩選前後端對接
+
+- [x] 19.1 `/clips` 端點新增 `category`、`player_number` 查詢參數
+- [x] 19.2 `clip_service.list_clips()` 加入 Mark JOIN 篩選邏輯（按分類、球員編號）
+- [x] 19.3 ClipOut 擴充：加入 `category`、`label`、`player_numbers`、`start_time`、`end_time` 欄位（透過 Mark 關聯取得）
+
+## 20. 修復精華剪輯多選前後端對接
+
+- [x] 20.1 Highlight model 新增 `filter_players`（JSON）、`filter_categories`（JSON）欄位，取代舊的 filter_player/filter_category
+- [x] 20.2 GenerateRequest 改為 `player_numbers: list[int]`、`categories: list[str]`
+- [x] 20.3 `highlight_service.generate_highlight()` 支援多球員+多分類篩選
+- [x] 20.4 HighlightOut 回傳 `player_numbers`、`categories`、`created_at`
+- [x] 20.5 產生 Alembic migration 新增 highlights.filter_players/filter_categories 欄位
+
+## 21. 鍵盤快捷鍵標記
+
+- [x] 21.1 VideoDetailPage 監聽鍵盤事件（1=進攻、2=防守、3=精彩、4=失誤）
+- [x] 21.2 播放中按下數字鍵直接標記當前時間（預設前後各 3 秒），不需暫停
+- [x] 21.3 標記後顯示 toast 提示確認標記已建立
+
+## 22. 標記內聯編輯
+
+- [x] 22.1 VideoDetailPage 新增標記展開編輯 UI（點擊卡片展開，可修改 time/offset/category/label/players）
+- [x] 22.2 呼叫 `markApi.update()` 儲存修改，成功後刷新列表
+
+## 23. 精華剪輯刪除
+
+- [x] 23.1 後端新增 `DELETE /api/highlights/{highlight_id}`（含權限檢查、刪除檔案/分享/DB 記錄）
+- [x] 23.2 `highlight_service.py` 新增 `delete_highlight()` 函式
+- [x] 23.3 前端 `highlightApi` 新增 `delete()` 方法
+- [x] 23.4 HighlightsPage 每張卡片加刪除按鈕 + 確認對話框
+
+## 24. 統一導航列（Navbar）
+
+- [x] 24.1 建立 `frontend/src/components/Navbar.tsx` 共用導航列元件（Logo + 導航連結 + 使用者名稱 + 登出）
+- [x] 24.2 所有頁面（HomePage、VideosPage、VideoDetailPage、ClipsPage、HighlightsPage、UsersPage）移除自行實作的頭部，改用 Navbar
+
+## 25. 精華剪輯下載
+
+- [x] 25.1 後端新增 `GET /api/highlights/{id}/download`（返回檔案附件下載）
+- [x] 25.2 HighlightsPage 卡片加下載按鈕
+
+## 26. 片段下載
+
+- [x] 26.1 後端新增 `GET /api/clips/{id}/download`（返回檔案附件下載）
+- [x] 26.2 ClipsPage 卡片加下載按鈕
+
+## 27. 影片重新命名
+
+- [x] 27.1 後端新增 `PUT /api/videos/{video_id}`（修改 title）
+- [x] 27.2 VideosPage 卡片加重新命名功能
+
+## 28. 軌道式標記 UX 重設計
+
+### 28.1 後端：MarkCreate 支援 start_time/end_time + 分類精簡
+
+- [x] 28.1.1 `marks.py` CATEGORY_LABELS 移除 `highlight`，保留 offense/defense/turnover/untagged
+- [x] 28.1.2 `marks.py` valid_categories 移除 `highlight`
+- [x] 28.1.3 MarkCreate schema：`time` 改為可選（`float | None = None`），新增 `start_time`/`end_time` 可選欄位，offset 預設改為 8.0/5.0
+- [x] 28.1.4 create_mark 函式：支援兩種建立方式（start_time/end_time 優先，fallback 到 time+offset）
+
+### 28.2 前端：時間軸改為軌道式色塊
+
+- [x] 28.2.1 VideoPlayer Mark 介面新增 `start_time`/`end_time` 欄位
+- [x] 28.2.2 時間軸渲染從圓點（`.mark-dot`）改為色塊（`.mark-block`），寬度對應時間範圍
+- [x] 28.2.3 色塊 hover 效果（不透明度提升）、點擊跳轉至 start_time
+- [x] 28.2.4 色塊左右邊緣加 4px 拖曳把手，拖曳時即時更新時間並顯示 tooltip
+- [x] 28.2.5 新增 `onMarkUpdate` prop，拖曳結束時呼叫 API 更新 start_time/end_time
+- [x] 28.2.6 新增 `recording` prop，錄製中顯示動態延伸的半透明色塊
+- [x] 28.2.7 分類顏色與圖例改為 3 個（移除精彩/黃色）
+
+### 28.3 前端：錄製模式 + 快捷列 + 卡片重構
+
+- [x] 28.3.1 CATEGORIES 從 4 個改為 3 個（進攻/防守/失誤），快捷鍵 1/2/3
+- [x] 28.3.2 MarkData 介面新增 `start_time`/`end_time`
+- [x] 28.3.3 新增 `recording` 狀態（category/label/startTime），按 1-3 進入錄製模式（暫停影片、記錄起點）
+- [x] 28.3.4 Esc 鍵結束錄製（暫停影片、呼叫 markApi.create 傳 start_time/end_time、顯示 toast）
+- [x] 28.3.5 快捷列 UI 狀態感知：未錄製顯示快捷按鈕、錄製中顯示起點/目前時間 + Esc/取消按鈕
+- [x] 28.3.6 快捷列錄製中背景色變為分類淺色
+- [x] 28.3.7 編輯表單改用 start_time/end_time 直接編輯（移除 time+offset 欄位）
+- [x] 28.3.8 卡片顯示改用 start_time ~ end_time 格式 + 總時長
+- [x] 28.3.9 activeMarkId 計算改用 mark.start_time/end_time
+- [x] 28.3.10 傳遞 recording 狀態與 onMarkUpdate 回呼給 VideoPlayer

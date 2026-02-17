@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { videoApi } from '../services/api';
+import Navbar from '../components/Navbar';
 
 interface Video {
   id: number;
@@ -9,6 +10,9 @@ interface Video {
   status: string;
   duration: number | null;
   error_message: string | null;
+  download_progress: number | null;
+  download_speed: number | null;
+  download_eta: number | null;
   created_at: string;
 }
 
@@ -49,6 +53,20 @@ function formatDuration(seconds: number | null): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+function formatSpeed(bytesPerSec: number | null): string {
+  if (bytesPerSec == null || bytesPerSec <= 0) return '';
+  if (bytesPerSec >= 1024 * 1024) return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
+  return `${(bytesPerSec / 1024).toFixed(0)} KB/s`;
+}
+
+function formatEta(seconds: number | null): string {
+  if (seconds == null || seconds <= 0) return '';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  if (m > 0) return `剩餘 ${m}分${s}秒`;
+  return `剩餘 ${s}秒`;
+}
+
 export default function VideosPage() {
   const navigate = useNavigate();
   const [videos, setVideos] = useState<Video[]>([]);
@@ -59,6 +77,10 @@ export default function VideosPage() {
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 重新命名
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
 
   /** 載入影片列表 */
   const fetchVideos = useCallback(async () => {
@@ -91,7 +113,7 @@ export default function VideosPage() {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
-      }, 3000);
+      }, 2000);
     }
     return () => {
       if (pollingRef.current) {
@@ -134,6 +156,26 @@ export default function VideosPage() {
     }
   };
 
+  /** 開始重新命名 */
+  const startRename = (video: Video) => {
+    setRenamingId(video.id);
+    setRenameTitle(video.title);
+  };
+
+  /** 儲存重新命名 */
+  const handleRename = async (id: number) => {
+    if (!renameTitle.trim()) return;
+    try {
+      await videoApi.update(id, { title: renameTitle.trim() });
+      setVideos((prev) =>
+        prev.map((v) => (v.id === id ? { ...v, title: renameTitle.trim() } : v))
+      );
+      setRenamingId(null);
+    } catch {
+      setError('重新命名失敗');
+    }
+  };
+
   /** 刪除影片 */
   const handleDelete = async (id: number) => {
     if (!confirm('確定要刪除此影片嗎？')) return;
@@ -147,22 +189,7 @@ export default function VideosPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 頂部導航 */}
-      <header className="bg-white shadow">
-        <div className="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/" className="text-xl font-bold text-gray-900 hover:text-blue-600">
-              ShotCut
-            </Link>
-            <span className="text-gray-400">/</span>
-            <h1 className="text-xl font-semibold text-gray-800">影片管理</h1>
-          </div>
-          <nav className="flex gap-4 text-sm">
-            <Link to="/clips" className="text-gray-600 hover:text-blue-600">片段管理</Link>
-            <Link to="/highlights" className="text-gray-600 hover:text-blue-600">精華剪輯</Link>
-          </nav>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8">
         {/* 錯誤提示 */}
@@ -238,11 +265,39 @@ export default function VideosPage() {
                 {/* 卡片主體（可點擊） */}
                 <div
                   className="p-5 cursor-pointer"
-                  onClick={() => navigate(`/videos/${video.id}`)}
+                  onClick={() => renamingId !== video.id && navigate(`/videos/${video.id}`)}
                 >
-                  <h3 className="font-semibold text-gray-900 truncate">
-                    {video.title}
-                  </h3>
+                  {renamingId === video.id ? (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={renameTitle}
+                        onChange={(e) => setRenameTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRename(video.id);
+                          if (e.key === 'Escape') setRenamingId(null);
+                        }}
+                        autoFocus
+                        className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm font-semibold focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button
+                        onClick={() => handleRename(video.id)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        儲存
+                      </button>
+                      <button
+                        onClick={() => setRenamingId(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <h3 className="font-semibold text-gray-900 truncate">
+                      {video.title}
+                    </h3>
+                  )}
                   <div className="mt-2 flex items-center gap-3 text-sm text-gray-500">
                     <span className="capitalize">{video.source_type === 'youtube' ? 'YouTube' : '本機上傳'}</span>
                     <span>{formatDuration(video.duration)}</span>
@@ -254,10 +309,39 @@ export default function VideosPage() {
                       {statusLabel(video.status)}
                     </span>
                   </div>
+
+                  {/* 下載進度條 */}
+                  {(video.status === 'downloading' || video.status === 'pending') && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                        <span>{video.download_progress != null ? `${video.download_progress.toFixed(1)}%` : '準備中...'}</span>
+                        <span>
+                          {formatSpeed(video.download_speed)}
+                          {video.download_speed && video.download_eta ? ' · ' : ''}
+                          {formatEta(video.download_eta)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${Math.min(video.download_progress ?? 0, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 操作列 */}
-                <div className="border-t border-gray-100 px-5 py-3 flex justify-end">
+                <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startRename(video);
+                    }}
+                    className="text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    重新命名
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

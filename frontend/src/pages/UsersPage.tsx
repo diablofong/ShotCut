@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { userApi } from '../services/api';
+import Navbar from '../components/Navbar';
 
 interface UserItem {
   id: number;
@@ -12,7 +12,7 @@ interface UserItem {
 }
 
 export default function UsersPage() {
-  const { user: currentUser, logout } = useAuth();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [username, setUsername] = useState('');
@@ -63,19 +63,7 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="mx-auto max-w-7xl px-4 py-6 flex items-center justify-between">
-          <div>
-            <Link to="/" className="text-3xl font-bold text-gray-900 hover:text-blue-600">ShotCut</Link>
-            <p className="mt-1 text-gray-500">使用者管理</p>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-gray-600">{currentUser?.display_name}（{currentUser?.role}）</span>
-            <Link to="/users" className="text-blue-600 font-medium">使用者管理</Link>
-            <button onClick={logout} className="text-red-600 hover:text-red-800">登出</button>
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8">
         <div className="flex items-center justify-between mb-6">

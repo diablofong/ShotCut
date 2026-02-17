@@ -11,39 +11,66 @@ from backend.models.user import User
 
 router = APIRouter(tags=["marks"])
 
+CATEGORY_LABELS = {
+    "offense": "進攻",
+    "defense": "防守",
+    "turnover": "失誤",
+    "untagged": "未分類",
+}
+
 
 class MarkCreate(BaseModel):
-    start_time: float
-    end_time: float
+    # 方式 1（舊）：時間點 + 偏移
+    time: float | None = None
+    start_offset: float = 8.0
+    end_offset: float = 5.0
+    # 方式 2（新）：直接範圍
+    start_time: float | None = None
+    end_time: float | None = None
+    # 共用
     category: str = "untagged"
+    label: str = ""
     player_numbers: list[int] = []
 
 
 class MarkUpdate(BaseModel):
+    time: float | None = None
+    start_offset: float | None = None
+    end_offset: float | None = None
     start_time: float | None = None
     end_time: float | None = None
     category: str | None = None
+    label: str | None = None
     player_numbers: list[int] | None = None
 
 
 class MarkOut(BaseModel):
     id: int
     video_id: int
+    time: float
     start_time: float
     end_time: float
+    start_offset: float
+    end_offset: float
     category: str
+    label: str
     player_numbers: list[int] = []
 
     model_config = {"from_attributes": True}
 
 
 def _mark_to_out(mark: Mark) -> MarkOut:
+    time = (mark.start_time + mark.end_time) / 2
     return MarkOut(
         id=mark.id,
         video_id=mark.video_id,
+        time=time,
         start_time=mark.start_time,
         end_time=mark.end_time,
+        start_offset=round(time - mark.start_time, 2),
+        end_offset=round(mark.end_time - time, 2),
         category=mark.category,
+        label=mark.label or CATEGORY_LABELS.get(mark.category, mark.category),
         player_numbers=[p.player_number for p in mark.players],
     )
 
@@ -57,15 +84,26 @@ async def create_mark(
 ):
     await verify_video_owner(video_id, db, current_user)
 
-    valid_categories = {"offense", "defense", "highlight", "turnover", "untagged"}
+    valid_categories = {"offense", "defense", "turnover", "untagged"}
     if req.category not in valid_categories:
         raise HTTPException(status_code=400, detail=f"分類必須為: {', '.join(valid_categories)}")
 
+    if req.start_time is not None and req.end_time is not None:
+        start_time = req.start_time
+        end_time = req.end_time
+    elif req.time is not None:
+        start_time = max(0, req.time - req.start_offset)
+        end_time = req.time + req.end_offset
+    else:
+        raise HTTPException(status_code=400, detail="需提供 start_time/end_time 或 time")
+    label = req.label or CATEGORY_LABELS.get(req.category, req.category)
+
     mark = Mark(
         video_id=video_id,
-        start_time=req.start_time,
-        end_time=req.end_time,
+        start_time=start_time,
+        end_time=end_time,
         category=req.category,
+        label=label,
     )
     db.add(mark)
     await db.flush()
@@ -114,12 +152,21 @@ async def update_mark(
 
     await verify_video_owner(mark.video_id, db, current_user)
 
-    if req.start_time is not None:
-        mark.start_time = req.start_time
-    if req.end_time is not None:
-        mark.end_time = req.end_time
+    if req.time is not None:
+        s_off = req.start_offset if req.start_offset is not None else 3.0
+        e_off = req.end_offset if req.end_offset is not None else 3.0
+        mark.start_time = max(0, req.time - s_off)
+        mark.end_time = req.time + e_off
+    else:
+        if req.start_time is not None:
+            mark.start_time = req.start_time
+        if req.end_time is not None:
+            mark.end_time = req.end_time
+
     if req.category is not None:
         mark.category = req.category
+    if req.label is not None:
+        mark.label = req.label
 
     if req.player_numbers is not None:
         for p in mark.players:

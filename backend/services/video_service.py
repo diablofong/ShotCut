@@ -1,6 +1,9 @@
+import asyncio
 import os
 import re
 import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import yt_dlp
 from sqlalchemy import select
@@ -51,10 +54,35 @@ async def _async_download(video_id: int, url: str, db_url: str):
             return
 
         video.status = "downloading"
+        video.download_progress = 0.0
         await db.commit()
 
         output_dir = _video_dir(video_id)
         output_path = os.path.join(output_dir, "original.%(ext)s")
+
+        # 共享進度資料，由 progress_hook（在下載執行緒）寫入
+        progress = {"percent": 0.0, "speed": None, "eta": None, "updated": False}
+        download_done = False
+
+        def progress_hook(d):
+            if d["status"] == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                downloaded_bytes = d.get("downloaded_bytes", 0)
+                progress["percent"] = (downloaded_bytes / total * 100) if total else 0
+                progress["speed"] = d.get("speed")
+                progress["eta"] = d.get("eta")
+                progress["updated"] = True
+
+        async def flush_progress():
+            """每 2 秒將進度寫入 DB"""
+            while not download_done:
+                if progress["updated"]:
+                    video.download_progress = round(progress["percent"], 1)
+                    video.download_speed = progress["speed"]
+                    video.download_eta = int(progress["eta"]) if progress["eta"] else None
+                    progress["updated"] = False
+                    await db.commit()
+                await asyncio.sleep(2)
 
         try:
             ydl_opts = {
@@ -62,25 +90,42 @@ async def _async_download(video_id: int, url: str, db_url: str):
                 "outtmpl": output_path,
                 "quiet": True,
                 "no_warnings": True,
-                "js_runtimes": "nodejs",
+                "js_runtimes": {"node": {}},
+                "remote_components": {"ejs:github"},
+                "progress_hooks": [progress_hook],
             }
 
+            loop = asyncio.get_event_loop()
+            flush_task = asyncio.ensure_future(flush_progress())
+
+            def do_download():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    return ydl.extract_info(url, download=True)
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                info = await loop.run_in_executor(executor, do_download)
+
+            download_done = True
+            await flush_task
+
+            if info is None:
+                raise RuntimeError("無法取得影片資訊")
+
+            video.title = info.get("title", "未知標題")
+            video.duration = info.get("duration")
+
+            # 找到下載的檔案
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if info is None:
-                    raise RuntimeError("無法取得影片資訊")
-
-                video.title = info.get("title", "未知標題")
-                video.duration = info.get("duration")
-
-                # 找到下載的檔案
                 downloaded = ydl.prepare_filename(info)
-                video.file_path = downloaded
-                video.file_size = os.path.getsize(downloaded) if os.path.exists(downloaded) else None
-                video.status = "completed"
-                video.download_progress = 100.0
+            video.file_path = downloaded
+            video.file_size = os.path.getsize(downloaded) if os.path.exists(downloaded) else None
+            video.status = "completed"
+            video.download_progress = 100.0
+            video.download_speed = None
+            video.download_eta = None
 
         except Exception as e:
+            download_done = True
             video.status = "failed"
             video.error_message = str(e)[:2000]
 

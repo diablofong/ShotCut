@@ -3,9 +3,10 @@ import subprocess
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.models.clip import Clip
-from backend.models.mark import Mark
+from backend.models.mark import Mark, MarkPlayer
 from backend.models.video import Video
 
 CLIP_DIR = os.getenv("CLIP_DIR", "./clips")
@@ -70,13 +71,26 @@ async def extract_all_clips(db: AsyncSession, video_id: int) -> list[Clip]:
     return clips
 
 
-async def list_clips(db: AsyncSession, video_id: int | None = None) -> list[Clip]:
-    stmt = select(Clip)
+async def list_clips(
+    db: AsyncSession,
+    video_id: int | None = None,
+    category: str | None = None,
+    player_number: int | None = None,
+) -> list[Clip]:
+    stmt = select(Clip).join(Mark).options(selectinload(Clip.mark).selectinload(Mark.players))
+
     if video_id:
         stmt = stmt.where(Clip.video_id == video_id)
+    if category:
+        stmt = stmt.where(Mark.category == category)
+    if player_number is not None:
+        stmt = stmt.join(MarkPlayer, Mark.id == MarkPlayer.mark_id).where(
+            MarkPlayer.player_number == player_number
+        )
+
     stmt = stmt.order_by(Clip.created_at.desc())
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return list(result.scalars().unique().all())
 
 
 async def delete_clip(db: AsyncSession, clip_id: int) -> bool:

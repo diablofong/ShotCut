@@ -14,6 +14,7 @@ class Mark(Base):
     start_time: Mapped[float] = mapped_column(Float)
     end_time: Mapped[float] = mapped_column(Float)
     category: Mapped[str] = mapped_column(String(20), default="untagged")  # offense/defense/highlight/turnover/untagged
+    label: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     video = relationship("Video", back_populates="marks")

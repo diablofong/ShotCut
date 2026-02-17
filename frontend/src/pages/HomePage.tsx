@@ -1,25 +1,14 @@
 import { Link } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import Navbar from '../components/Navbar';
 
 export default function HomePage() {
-  const { user, isAdmin, logout } = useAuth();
-
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="mx-auto max-w-7xl px-4 py-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">ShotCut</h1>
-            <p className="mt-1 text-gray-500">籃球比賽影片標記與片段擷取工具</p>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-gray-600">{user?.display_name}</span>
-            {isAdmin && <Link to="/users" className="text-blue-600 font-medium hover:text-blue-800">使用者管理</Link>}
-            <button onClick={logout} className="text-red-600 hover:text-red-800">登出</button>
-          </div>
-        </div>
-      </header>
+      <Navbar />
       <main className="mx-auto max-w-7xl px-4 py-8">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">籃球比賽影片標記與片段擷取工具</h2>
+        </div>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           <Link to="/videos" className="rounded-lg bg-white p-6 shadow hover:shadow-md transition-shadow">
             <h2 className="text-xl font-semibold">影片管理</h2>

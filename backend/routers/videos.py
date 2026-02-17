@@ -1,6 +1,7 @@
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,10 @@ class DownloadRequest(BaseModel):
     url: str
 
 
+class VideoUpdateRequest(BaseModel):
+    title: str
+
+
 class VideoOut(BaseModel):
     id: int
     title: str
@@ -26,6 +31,8 @@ class VideoOut(BaseModel):
     file_size: int | None = None
     error_message: str | None = None
     download_progress: float | None = None
+    download_speed: float | None = None
+    download_eta: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -81,6 +88,22 @@ async def get_video(
     return video
 
 
+@router.put("/videos/{video_id}", response_model=VideoOut)
+async def update_video(
+    video_id: int,
+    req: VideoUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    video = await verify_video_owner(video_id, db, current_user)
+    if not req.title or not req.title.strip():
+        raise HTTPException(status_code=400, detail="標題不可為空")
+    video.title = req.title.strip()
+    await db.commit()
+    await db.refresh(video)
+    return video
+
+
 @router.delete("/videos/{video_id}")
 async def delete_video(
     video_id: int,
@@ -92,6 +115,60 @@ async def delete_video(
     if not deleted:
         raise HTTPException(status_code=404, detail="影片不存在")
     return {"ok": True}
+
+
+@router.get("/videos/{video_id}/stream")
+async def stream_video(
+    video_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    video = await verify_video_owner(video_id, db, current_user)
+    if not video.file_path or not os.path.exists(video.file_path):
+        raise HTTPException(status_code=404, detail="影片檔案不存在")
+
+    file_path = video.file_path
+    file_size = os.path.getsize(file_path)
+    range_header = request.headers.get("range")
+
+    if range_header:
+        # 解析 Range: bytes=start-end
+        range_spec = range_header.replace("bytes=", "")
+        parts = range_spec.split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if parts[1] else file_size - 1
+        end = min(end, file_size - 1)
+        content_length = end - start + 1
+
+        def iter_file():
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk = f.read(min(8192, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return StreamingResponse(
+            iter_file(),
+            status_code=206,
+            media_type="video/mp4",
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(content_length),
+            },
+        )
+
+    # 無 Range header：回傳完整檔案
+    return FileResponse(
+        file_path,
+        media_type="video/mp4",
+        headers={"Accept-Ranges": "bytes"},
+    )
 
 
 @router.get("/videos/{video_id}/status", response_model=VideoOut)

@@ -57,6 +57,7 @@ export const videoApi = {
     form.append('file', file);
     return api.post('/videos/upload', form);
   },
+  update: (id: number, data: { title: string }) => api.put(`/videos/${id}`, data),
   delete: (id: number) => api.delete(`/videos/${id}`),
   status: (id: number) => api.get(`/videos/${id}/status`),
 };
@@ -88,6 +89,7 @@ export const clipApi = {
 export const highlightApi = {
   list: () => api.get('/highlights'),
   generate: (data: Record<string, unknown>) => api.post('/highlights/generate', data),
+  delete: (id: number) => api.delete(`/highlights/${id}`),
 };
 
 // 分享

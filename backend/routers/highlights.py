@@ -1,33 +1,73 @@
+import json
+import os
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.database import get_db
 from backend.auth.dependencies import get_current_user
 from backend.models.user import User
+from backend.models.highlight import Highlight
 from backend.services import highlight_service
 
 router = APIRouter(tags=["highlights"])
 
 
 class GenerateRequest(BaseModel):
-    player_number: int | None = None
-    category: str | None = None
+    player_numbers: list[int] = []
+    categories: list[str] = []
     title: str | None = None
 
 
 class HighlightOut(BaseModel):
     id: int
     title: str
-    filter_player: int | None = None
-    filter_category: str | None = None
     file_path: str | None = None
     duration: float | None = None
     file_size: int | None = None
     status: str
     error_message: str | None = None
+    player_numbers: list[int] = []
+    categories: list[str] = []
+    created_at: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+def _highlight_to_out(hl: Highlight) -> HighlightOut:
+    player_numbers = []
+    if hl.filter_players:
+        try:
+            player_numbers = json.loads(hl.filter_players)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    elif hl.filter_player is not None:
+        player_numbers = [hl.filter_player]
+
+    categories = []
+    if hl.filter_categories:
+        try:
+            categories = json.loads(hl.filter_categories)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    elif hl.filter_category:
+        categories = [hl.filter_category]
+
+    return HighlightOut(
+        id=hl.id,
+        title=hl.title,
+        file_path=hl.file_path,
+        duration=hl.duration,
+        file_size=hl.file_size,
+        status=hl.status,
+        error_message=hl.error_message,
+        player_numbers=player_numbers,
+        categories=categories,
+        created_at=hl.created_at.isoformat() if hl.created_at else None,
+    )
 
 
 @router.post("/highlights/generate", response_model=HighlightOut)
@@ -40,14 +80,62 @@ async def generate_highlight(
     try:
         highlight = await highlight_service.generate_highlight(
             db,
-            player_number=req.player_number,
-            category=req.category,
+            player_numbers=req.player_numbers or None,
+            categories=req.categories or None,
             title=req.title,
             user_id=user_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return highlight
+    return _highlight_to_out(highlight)
+
+
+@router.get("/highlights/{highlight_id}/stream")
+async def stream_highlight(
+    highlight_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    highlight = await db.get(Highlight, highlight_id)
+    if not highlight:
+        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    if not highlight.file_path or not os.path.exists(highlight.file_path):
+        raise HTTPException(status_code=404, detail="精華剪輯檔案不存在")
+    return FileResponse(highlight.file_path, media_type="video/mp4", filename=f"{highlight.title}.mp4")
+
+
+@router.get("/highlights/{highlight_id}/download")
+async def download_highlight(
+    highlight_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    highlight = await db.get(Highlight, highlight_id)
+    if not highlight:
+        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    if not highlight.file_path or not os.path.exists(highlight.file_path):
+        raise HTTPException(status_code=404, detail="精華剪輯檔案不存在")
+    filename = f"{highlight.title}.mp4"
+    encoded = quote(filename)
+    return FileResponse(
+        highlight.file_path, media_type="video/mp4",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+    )
+
+
+@router.delete("/highlights/{highlight_id}")
+async def delete_highlight(
+    highlight_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    highlight = await db.get(Highlight, highlight_id)
+    if not highlight:
+        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    if current_user.role != "admin" and highlight.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="無權刪除此精華剪輯")
+    await highlight_service.delete_highlight(db, highlight_id)
+    return {"detail": "已刪除"}
 
 
 @router.get("/highlights", response_model=list[HighlightOut])
@@ -56,5 +144,7 @@ async def list_highlights(
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role == "admin":
-        return await highlight_service.list_highlights(db)
-    return await highlight_service.list_highlights(db, owner_id=current_user.id)
+        highlights = await highlight_service.list_highlights(db)
+    else:
+        highlights = await highlight_service.list_highlights(db, owner_id=current_user.id)
+    return [_highlight_to_out(hl) for hl in highlights]

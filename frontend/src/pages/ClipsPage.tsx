@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { clipApi } from '../services/api';
 import VideoPlayer, { type VideoPlayerHandle } from '../components/VideoPlayer';
+import Navbar from '../components/Navbar';
 
 interface Clip {
   id: number;
@@ -102,22 +102,7 @@ export default function ClipsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 頂部導航 */}
-      <header className="bg-white shadow">
-        <div className="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/" className="text-xl font-bold text-gray-900 hover:text-blue-600">
-              ShotCut
-            </Link>
-            <span className="text-gray-400">/</span>
-            <h1 className="text-xl font-semibold text-gray-800">片段管理</h1>
-          </div>
-          <nav className="flex gap-4 text-sm">
-            <Link to="/videos" className="text-gray-600 hover:text-blue-600">影片管理</Link>
-            <Link to="/highlights" className="text-gray-600 hover:text-blue-600">精華剪輯</Link>
-          </nav>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8">
         {/* 錯誤提示 */}
@@ -180,7 +165,7 @@ export default function ClipsPage() {
             <div className="max-w-2xl mx-auto">
               <VideoPlayer
                 ref={previewPlayerRef}
-                src={`/api/clips/${previewClip.id}/stream`}
+                src={`/api/clips/${previewClip.id}/stream?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
               />
             </div>
           </div>
@@ -245,12 +230,20 @@ export default function ClipsPage() {
                   >
                     播放
                   </button>
-                  <button
-                    onClick={() => handleDelete(clip.id)}
-                    className="text-sm text-red-600 hover:text-red-800"
-                  >
-                    刪除
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={`/api/clips/${clip.id}/download?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                      className="text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      下載
+                    </a>
+                    <button
+                      onClick={() => handleDelete(clip.id)}
+                      className="text-sm text-red-600 hover:text-red-800"
+                    >
+                      刪除
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
