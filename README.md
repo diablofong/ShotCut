@@ -102,6 +102,8 @@ docker run --rm \
   -m pytest backend/tests/ -v --cov=backend
 ```
 
+**Current status: 23/23 tests passing — 56% coverage** (threshold: 50%)
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |

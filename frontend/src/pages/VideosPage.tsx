@@ -173,9 +173,10 @@ export default function VideosPage() {
     }
 
     return () => {
-      // 清理（組件卸載時）
-      wsConnections.current.forEach((ws) => ws.close());
-      wsConnections.current.clear();
+      // 清理（組件卸載時）：先捕捉 ref 快照，避免 cleanup 時值已變
+      const connections = wsConnections.current;
+      connections.forEach((ws) => ws.close());
+      connections.clear();
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;

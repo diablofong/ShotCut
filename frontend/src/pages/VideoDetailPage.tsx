@@ -541,7 +541,7 @@ export default function VideoDetailPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    isEditing ? cancelEditMark() : startEditMark(mark);
+                                    if (isEditing) { cancelEditMark(); } else { startEditMark(mark); }
                                   }}
                                   className={`text-xs font-medium ${isEditing ? 'text-gray-500 hover:text-gray-700' : 'text-blue-500 hover:text-blue-700'}`}
                                 >

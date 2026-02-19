@@ -103,6 +103,8 @@ docker run --rm \
   -m pytest backend/tests/ -v --cov=backend
 ```
 
+**目前狀態：23/23 測試通過 — 覆蓋率 56%**（門檻：50%）
+
 ## 環境變數
 
 | 變數名稱 | 必填 | 預設值 | 說明 |

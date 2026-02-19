@@ -22,7 +22,8 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
-  const [loading, setLoading] = useState(true);
+  // 有 token 才需要驗證，初始 loading 狀態由此決定
+  const [loading, setLoading] = useState(() => !!localStorage.getItem('token'));
 
   useEffect(() => {
     if (token) {
@@ -34,9 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
         })
         .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
     }
+    // 無 token：loading 初始即為 false，無需再次呼叫 setLoading
   }, [token]);
 
   const login = async (username: string, password: string) => {
@@ -65,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');

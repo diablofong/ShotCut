@@ -27,7 +27,9 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    loadUsers();
+    // loadUsers 為 async 函式，不會同步呼叫 setState
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadUsers();
   }, []);
 
   const handleCreate = async (e: FormEvent) => {
@@ -41,8 +43,9 @@ export default function UsersPage() {
       setRole('user');
       setShowForm(false);
       loadUsers();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || '建立失敗');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || '建立失敗');
     }
   };
 
@@ -56,8 +59,9 @@ export default function UsersPage() {
     try {
       await userApi.delete(u.id);
       loadUsers();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || '刪除失敗');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      alert(detail || '刪除失敗');
     }
   };
 
