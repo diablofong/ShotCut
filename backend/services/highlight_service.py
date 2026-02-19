@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -11,6 +12,8 @@ from backend.models.highlight import Highlight, HighlightClip
 from backend.models.mark import Mark, MarkPlayer
 
 HIGHLIGHT_DIR = os.getenv("HIGHLIGHT_DIR", "./highlights")
+FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "300"))
+logger = logging.getLogger(__name__)
 
 CATEGORY_LABELS = {
     "offense": "進攻",
@@ -97,6 +100,7 @@ async def generate_highlight(
             ],
             capture_output=True,
             check=True,
+            timeout=FFMPEG_TIMEOUT,
         )
         os.unlink(concat_file)
 
@@ -111,9 +115,19 @@ async def generate_highlight(
         thumb_path = get_highlight_thumbnail_path(highlight.id)
         if generate_thumbnail(output_path, thumb_path):
             highlight.thumbnail_path = thumb_path
+    except subprocess.TimeoutExpired:
+        highlight.status = "failed"
+        highlight.error_message = "影片處理失敗（處理超時）"
+        logger.error("FFmpeg 精華剪輯合併超時: highlight_id=%d", highlight.id)
+    except subprocess.CalledProcessError as e:
+        highlight.status = "failed"
+        highlight.error_message = "影片處理失敗"
+        stderr = e.stderr.decode(errors="replace")[:2000] if e.stderr else "unknown"
+        logger.error("FFmpeg 精華剪輯合併失敗: highlight_id=%d, stderr=%s", highlight.id, stderr)
     except Exception as e:
         highlight.status = "failed"
-        highlight.error_message = str(e)[:2000]
+        highlight.error_message = "影片處理失敗"
+        logger.error("精華剪輯產出異常: highlight_id=%d, error=%s", highlight.id, str(e))
 
     await db.commit()
     await db.refresh(highlight)
@@ -143,9 +157,12 @@ async def delete_highlight(db: AsyncSession, highlight_id: int) -> None:
     await db.commit()
 
 
-async def list_highlights(db: AsyncSession, owner_id: int | None = None) -> list[Highlight]:
+async def list_highlights(
+    db: AsyncSession, owner_id: int | None = None, limit: int = 100, offset: int = 0
+) -> list[Highlight]:
     stmt = select(Highlight).order_by(Highlight.created_at.desc())
     if owner_id is not None:
         stmt = stmt.where(Highlight.owner_id == owner_id)
+    stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())

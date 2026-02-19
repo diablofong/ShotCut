@@ -1,5 +1,12 @@
 ## ADDED Requirements
 
+### Requirement: React Error Boundary
+前端 SHALL 提供 ErrorBoundary 元件，包裹所有主要路由頁面。當任一元件發生渲染錯誤時 SHALL 顯示友善的錯誤提示頁面，而非白畫面。
+
+#### Scenario: 元件渲染錯誤
+- **WHEN** 某頁面元件拋出 JavaScript 錯誤
+- **THEN** ErrorBoundary 攔截錯誤，顯示「發生錯誤」提示與重新整理按鈕，不影響其他頁面
+
 ### Requirement: 影片管理頁面
 前端 SHALL 提供影片管理頁面，顯示所有影片列表，支援新增（YouTube URL / 上傳）與刪除操作。下載中影片的 polling 機制 MUST 正確實作，不得因 useEffect 依賴陣列錯誤導致無限循環或重複建立定時器。
 
@@ -50,7 +57,7 @@
 - **THEN** 播放器跳轉至該標記的時間點，顯示標記詳情
 
 ### Requirement: 片段與精華剪輯管理
-前端 SHALL 提供片段列表瀏覽與精華剪輯產出操作介面。
+前端 SHALL 提供片段列表瀏覽與精華剪輯產出操作介面。各頁面的資料載入失敗 MUST 顯示錯誤訊息，區分「無資料」與「載入失敗」狀態。
 
 #### Scenario: 瀏覽片段列表
 - **WHEN** 使用者進入片段管理頁面
@@ -63,6 +70,10 @@
 #### Scenario: 觸發精華剪輯產出
 - **WHEN** 使用者選擇球員或標籤並點擊「產出精華剪輯」
 - **THEN** 提交產出請求，顯示處理進度
+
+#### Scenario: 資料載入失敗
+- **WHEN** API 請求失敗（網路錯誤、伺服器錯誤）
+- **THEN** 頁面 SHALL 顯示錯誤訊息，而非空白列表或靜默忽略
 
 ### Requirement: 分享頁面
 前端 SHALL 提供公開的分享頁面，訪客無需登入即可觀看精華剪輯。

@@ -113,7 +113,7 @@ export default function HighlightsPage() {
       ).sort((a, b) => a - b);
       setAllPlayers(players);
     } catch {
-      /* 靜默處理 */
+      setError('無法載入球員資料');
     }
   }, []);
 

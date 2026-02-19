@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,36 +20,45 @@ CATEGORY_LABELS = {
     "untagged": "未分類",
 }
 
+CategoryType = Literal["offense", "defense", "turnover", "untagged"]
+
 
 class PlayerInfo(BaseModel):
-    number: int
-    name: str = ""
+    number: int = Field(ge=0, le=999)
+    name: str = Field(default="", max_length=100)
 
 
 class MarkCreate(BaseModel):
     # 方式 1（舊）：時間點 + 偏移
-    time: float | None = None
-    start_offset: float = 8.0
-    end_offset: float = 5.0
+    time: float | None = Field(default=None, ge=0)
+    start_offset: float = Field(default=8.0, ge=0, le=60)
+    end_offset: float = Field(default=5.0, ge=0, le=60)
     # 方式 2（新）：直接範圍
-    start_time: float | None = None
-    end_time: float | None = None
+    start_time: float | None = Field(default=None, ge=0)
+    end_time: float | None = Field(default=None, ge=0)
     # 共用
-    category: str = "untagged"
-    label: str = ""
-    player_numbers: list[int] = []
+    category: CategoryType = "untagged"
+    label: str = Field(default="", max_length=200)
+    player_numbers: list[Annotated[int, Field(ge=0, le=999)]] = []
     players: list[PlayerInfo] = []
+
+    @model_validator(mode="after")
+    def validate_time_range(self):
+        if self.start_time is not None and self.end_time is not None:
+            if self.start_time >= self.end_time:
+                raise ValueError("start_time 必須小於 end_time")
+        return self
 
 
 class MarkUpdate(BaseModel):
-    time: float | None = None
-    start_offset: float | None = None
-    end_offset: float | None = None
-    start_time: float | None = None
-    end_time: float | None = None
-    category: str | None = None
-    label: str | None = None
-    player_numbers: list[int] | None = None
+    time: float | None = Field(default=None, ge=0)
+    start_offset: float | None = Field(default=None, ge=0, le=60)
+    end_offset: float | None = Field(default=None, ge=0, le=60)
+    start_time: float | None = Field(default=None, ge=0)
+    end_time: float | None = Field(default=None, ge=0)
+    category: CategoryType | None = None
+    label: str | None = Field(default=None, max_length=200)
+    player_numbers: list[Annotated[int, Field(ge=0, le=999)]] | None = None
     players: list[PlayerInfo] | None = None
 
 
@@ -98,10 +109,6 @@ async def create_mark(
 ):
     await verify_video_owner(video_id, db, current_user)
 
-    valid_categories = {"offense", "defense", "turnover", "untagged"}
-    if req.category not in valid_categories:
-        raise HTTPException(status_code=400, detail=f"分類必須為: {', '.join(valid_categories)}")
-
     if req.start_time is not None and req.end_time is not None:
         start_time = req.start_time
         end_time = req.end_time
@@ -146,6 +153,8 @@ async def create_mark(
 @router.get("/videos/{video_id}/marks", response_model=list[MarkOut])
 async def list_marks(
     video_id: int,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -155,6 +164,8 @@ async def list_marks(
         .options(selectinload(Mark.players))
         .where(Mark.video_id == video_id)
         .order_by(Mark.start_time)
+        .offset(offset)
+        .limit(limit)
     )
     return [_mark_to_out(m) for m in result.scalars().all()]
 
@@ -227,4 +238,4 @@ async def delete_mark(
 
     await db.delete(mark)
     await db.commit()
-    return {"ok": True}
+    return {"detail": "已刪除"}

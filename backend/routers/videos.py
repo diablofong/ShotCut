@@ -1,6 +1,6 @@
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +9,9 @@ from backend.db.database import get_db, DATABASE_URL
 from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
 from backend.services import video_service
-from backend.utils.streaming import stream_file_response
+from backend.utils.streaming import stream_file_response, validate_file_path
+
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
 
 router = APIRouter(tags=["videos"])
 
@@ -75,12 +77,14 @@ async def upload_video(
 
 @router.get("/videos", response_model=list[VideoOut])
 async def list_videos(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role == "admin":
-        return await video_service.list_videos(db)
-    return await video_service.list_videos(db, owner_id=current_user.id)
+        return await video_service.list_videos(db, limit=limit, offset=offset)
+    return await video_service.list_videos(db, owner_id=current_user.id, limit=limit, offset=offset)
 
 
 @router.get("/videos/{video_id}", response_model=VideoOut)
@@ -119,7 +123,7 @@ async def delete_video(
     deleted = await video_service.delete_video(db, video_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="影片不存在")
-    return {"ok": True}
+    return {"detail": "已刪除"}
 
 
 @router.get("/videos/{video_id}/stream")
@@ -134,6 +138,7 @@ async def stream_video(
         raise HTTPException(status_code=404, detail="影片檔案不存在")
 
     file_path = video.file_path
+    validate_file_path(file_path, UPLOAD_DIR)
     file_size = os.path.getsize(file_path)
     return stream_file_response(file_path, file_size, request.headers.get("range"))
 

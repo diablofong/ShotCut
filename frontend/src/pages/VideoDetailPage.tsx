@@ -105,7 +105,7 @@ export default function VideoDetailPage() {
       const res = await markApi.list(videoId);
       setMarks(res.data);
     } catch {
-      /* 靜默處理 */
+      setError('無法載入標記資料');
     }
   }, [videoId]);
 

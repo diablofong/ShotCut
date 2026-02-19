@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 
@@ -10,6 +11,8 @@ from backend.models.mark import Mark, MarkPlayer
 from backend.models.video import Video
 
 CLIP_DIR = os.getenv("CLIP_DIR", "./clips")
+FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "300"))
+logger = logging.getLogger(__name__)
 
 
 async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
@@ -41,6 +44,7 @@ async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
             ],
             capture_output=True,
             check=True,
+            timeout=FFMPEG_TIMEOUT,
         )
         clip.file_path = output_path
         clip.duration = duration
@@ -52,9 +56,15 @@ async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
         thumb_path = get_clip_thumbnail_path(clip.id)
         if generate_thumbnail(output_path, thumb_path, timestamp=0.5):
             clip.thumbnail_path = thumb_path
+    except subprocess.TimeoutExpired:
+        clip.status = "failed"
+        clip.error_message = "影片處理失敗（處理超時）"
+        logger.error("FFmpeg 片段擷取超時: mark_id=%d, video_id=%d", mark.id, video.id)
     except subprocess.CalledProcessError as e:
         clip.status = "failed"
-        clip.error_message = e.stderr.decode()[:2000] if e.stderr else "FFmpeg 錯誤"
+        clip.error_message = "影片處理失敗"
+        stderr = e.stderr.decode(errors="replace")[:2000] if e.stderr else "unknown"
+        logger.error("FFmpeg 片段擷取失敗: mark_id=%d, stderr=%s", mark.id, stderr)
 
     await db.commit()
     await db.refresh(clip)
@@ -82,6 +92,8 @@ async def list_clips(
     video_id: int | None = None,
     category: str | None = None,
     player_number: int | None = None,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[Clip]:
     stmt = select(Clip).join(Mark).options(
         selectinload(Clip.mark).selectinload(Mark.players),
@@ -97,7 +109,7 @@ async def list_clips(
             MarkPlayer.player_number == player_number
         )
 
-    stmt = stmt.order_by(Clip.created_at.desc())
+    stmt = stmt.order_by(Clip.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().unique().all())
 

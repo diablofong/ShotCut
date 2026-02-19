@@ -28,8 +28,12 @@ def generate_thumbnail(
             ],
             capture_output=True,
             check=True,
+            timeout=60,
         )
         return os.path.exists(output_path)
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg 縮圖生成超時 [%s]", video_path)
+        return False
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode(errors="replace") if e.stderr else "unknown"
         logger.error("FFmpeg 縮圖生成失敗 [%s]: %s", video_path, stderr[:500])

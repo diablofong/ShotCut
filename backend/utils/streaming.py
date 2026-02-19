@@ -1,5 +1,15 @@
+import os
+
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+
+
+def validate_file_path(file_path: str, allowed_dir: str) -> None:
+    """驗證 file_path 在允許的目錄內，否則拋出 404。"""
+    real_path = os.path.realpath(file_path)
+    real_dir = os.path.realpath(allowed_dir)
+    if not real_path.startswith(real_dir + os.sep):
+        raise HTTPException(status_code=404, detail="檔案不存在")
 
 
 def parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:

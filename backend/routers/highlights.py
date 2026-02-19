@@ -2,7 +2,7 @@ import json
 import os
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,9 @@ from backend.auth.dependencies import get_current_user, verify_highlight_owner
 from backend.models.user import User
 from backend.models.highlight import Highlight
 from backend.services import highlight_service
-from backend.utils.streaming import stream_file_response
+from backend.utils.streaming import stream_file_response, validate_file_path
+
+HIGHLIGHT_DIR = os.getenv("HIGHLIGHT_DIR", "./highlights")
 
 router = APIRouter(tags=["highlights"])
 
@@ -103,6 +105,7 @@ async def stream_highlight(
         raise HTTPException(status_code=404, detail="精華剪輯檔案不存在")
 
     file_path = highlight.file_path
+    validate_file_path(file_path, HIGHLIGHT_DIR)
     file_size = os.path.getsize(file_path)
     return stream_file_response(file_path, file_size, request.headers.get("range"))
 
@@ -116,6 +119,7 @@ async def download_highlight(
     highlight = await verify_highlight_owner(highlight_id, db, current_user)
     if not highlight.file_path or not os.path.exists(highlight.file_path):
         raise HTTPException(status_code=404, detail="精華剪輯檔案不存在")
+    validate_file_path(highlight.file_path, HIGHLIGHT_DIR)
     filename = f"{highlight.title}.mp4"
     encoded = quote(filename)
     return FileResponse(
@@ -162,11 +166,13 @@ async def delete_highlight(
 
 @router.get("/highlights", response_model=list[HighlightOut])
 async def list_highlights(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role == "admin":
-        highlights = await highlight_service.list_highlights(db)
+        highlights = await highlight_service.list_highlights(db, limit=limit, offset=offset)
     else:
-        highlights = await highlight_service.list_highlights(db, owner_id=current_user.id)
+        highlights = await highlight_service.list_highlights(db, owner_id=current_user.id, limit=limit, offset=offset)
     return [_highlight_to_out(hl) for hl in highlights]

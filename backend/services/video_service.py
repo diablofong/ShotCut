@@ -192,10 +192,13 @@ async def create_upload_stream(
     return video
 
 
-async def list_videos(db: AsyncSession, owner_id: int | None = None) -> list[Video]:
+async def list_videos(
+    db: AsyncSession, owner_id: int | None = None, limit: int = 100, offset: int = 0
+) -> list[Video]:
     stmt = select(Video).order_by(Video.created_at.desc())
     if owner_id is not None:
         stmt = stmt.where(Video.owner_id == owner_id)
+    stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
