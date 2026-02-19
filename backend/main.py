@@ -28,9 +28,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ShotCut API", version="0.1.0", lifespan=lifespan)
 
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,10 +64,16 @@ if os.path.isdir(frontend_dist):
         return FileResponse(os.path.join(frontend_dist, "favicon.svg"))
 
     # SPA catch-all：所有非 /api 路徑返回 index.html
+    frontend_dist_real = os.path.realpath(frontend_dist)
+
     @app.get("/{full_path:path}")
     async def spa_fallback(request: Request, full_path: str):
-        # 如果請求的是實際存在的靜態檔，直接返回
-        file_path = os.path.join(frontend_dist, full_path)
-        if full_path and os.path.isfile(file_path):
+        # 如果請求的是實際存在的靜態檔，驗證路徑在 frontend_dist 內
+        file_path = os.path.realpath(os.path.join(frontend_dist, full_path))
+        if (
+            full_path
+            and file_path.startswith(frontend_dist_real + os.sep)
+            and os.path.isfile(file_path)
+        ):
             return FileResponse(file_path)
         return FileResponse(index_html)

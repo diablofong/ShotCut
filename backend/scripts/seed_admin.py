@@ -10,7 +10,9 @@ from backend.db.database import Base
 
 
 async def seed():
-    db_url = os.getenv("DATABASE_URL", "mysql+asyncmy://shotcut:shotcut_pass@db:3306/shotcut")
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("環境變數 DATABASE_URL 未設定")
     engine = create_async_engine(db_url)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -21,8 +23,10 @@ async def seed():
             await engine.dispose()
             return
 
-        username = os.getenv("ADMIN_USERNAME", "admin")
-        password = os.getenv("ADMIN_PASSWORD", "admin1234")
+        username = os.getenv("ADMIN_USERNAME")
+        password = os.getenv("ADMIN_PASSWORD")
+        if not username or not password:
+            raise RuntimeError("環境變數 ADMIN_USERNAME 與 ADMIN_PASSWORD 未設定")
         admin = User(
             username=username,
             hashed_password=hash_password(password),

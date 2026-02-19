@@ -55,3 +55,14 @@ async def verify_video_owner(video_id: int, db: AsyncSession, current_user: User
     if current_user.role != "admin" and video.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="無權存取此影片")
     return video
+
+
+async def verify_highlight_owner(highlight_id: int, db: AsyncSession, current_user: User):
+    from backend.models.highlight import Highlight
+
+    highlight = await db.get(Highlight, highlight_id)
+    if not highlight:
+        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    if current_user.role != "admin" and highlight.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="無權存取此精華剪輯")
+    return highlight

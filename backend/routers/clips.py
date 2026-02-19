@@ -2,7 +2,7 @@ import os
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
 from backend.models.clip import Clip
 from backend.services import clip_service
+from backend.utils.streaming import stream_file_response
 
 router = APIRouter(tags=["clips"])
 
@@ -109,43 +110,7 @@ async def stream_clip(
 
     file_path = clip.file_path
     file_size = os.path.getsize(file_path)
-    range_header = request.headers.get("range")
-
-    if range_header:
-        range_spec = range_header.replace("bytes=", "")
-        parts = range_spec.split("-")
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if parts[1] else file_size - 1
-        end = min(end, file_size - 1)
-        content_length = end - start + 1
-
-        def iter_file():
-            with open(file_path, "rb") as f:
-                f.seek(start)
-                remaining = content_length
-                while remaining > 0:
-                    chunk = f.read(min(8192, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
-
-        return StreamingResponse(
-            iter_file(),
-            status_code=206,
-            media_type="video/mp4",
-            headers={
-                "Content-Range": f"bytes {start}-{end}/{file_size}",
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(content_length),
-            },
-        )
-
-    return FileResponse(
-        file_path,
-        media_type="video/mp4",
-        headers={"Accept-Ranges": "bytes"},
-    )
+    return stream_file_response(file_path, file_size, request.headers.get("range"))
 
 
 @router.get("/clips/{clip_id}/download")

@@ -3,15 +3,16 @@ import os
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.database import get_db
-from backend.auth.dependencies import get_current_user
+from backend.auth.dependencies import get_current_user, verify_highlight_owner
 from backend.models.user import User
 from backend.models.highlight import Highlight
 from backend.services import highlight_service
+from backend.utils.streaming import stream_file_response
 
 router = APIRouter(tags=["highlights"])
 
@@ -97,51 +98,13 @@ async def stream_highlight(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    highlight = await db.get(Highlight, highlight_id)
-    if not highlight:
-        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    highlight = await verify_highlight_owner(highlight_id, db, current_user)
     if not highlight.file_path or not os.path.exists(highlight.file_path):
         raise HTTPException(status_code=404, detail="精華剪輯檔案不存在")
 
     file_path = highlight.file_path
     file_size = os.path.getsize(file_path)
-    range_header = request.headers.get("range")
-
-    if range_header:
-        range_spec = range_header.replace("bytes=", "")
-        parts = range_spec.split("-")
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if parts[1] else file_size - 1
-        end = min(end, file_size - 1)
-        content_length = end - start + 1
-
-        def iter_file():
-            with open(file_path, "rb") as f:
-                f.seek(start)
-                remaining = content_length
-                while remaining > 0:
-                    chunk = f.read(min(8192, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
-
-        return StreamingResponse(
-            iter_file(),
-            status_code=206,
-            media_type="video/mp4",
-            headers={
-                "Content-Range": f"bytes {start}-{end}/{file_size}",
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(content_length),
-            },
-        )
-
-    return FileResponse(
-        file_path,
-        media_type="video/mp4",
-        headers={"Accept-Ranges": "bytes"},
-    )
+    return stream_file_response(file_path, file_size, request.headers.get("range"))
 
 
 @router.get("/highlights/{highlight_id}/download")
@@ -150,9 +113,7 @@ async def download_highlight(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    highlight = await db.get(Highlight, highlight_id)
-    if not highlight:
-        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    highlight = await verify_highlight_owner(highlight_id, db, current_user)
     if not highlight.file_path or not os.path.exists(highlight.file_path):
         raise HTTPException(status_code=404, detail="精華剪輯檔案不存在")
     filename = f"{highlight.title}.mp4"
@@ -171,9 +132,7 @@ async def highlight_thumbnail(
 ):
     from backend.services.thumbnail_service import generate_thumbnail, get_highlight_thumbnail_path
 
-    highlight = await db.get(Highlight, highlight_id)
-    if not highlight:
-        raise HTTPException(status_code=404, detail="精華剪輯不存在")
+    highlight = await verify_highlight_owner(highlight_id, db, current_user)
     # Lazy 生成
     if not highlight.thumbnail_path or not os.path.exists(highlight.thumbnail_path):
         if highlight.file_path and os.path.exists(highlight.file_path):

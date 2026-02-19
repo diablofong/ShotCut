@@ -1,16 +1,19 @@
 import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.database import get_db
+from backend.db.database import get_db, DATABASE_URL
 from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
 from backend.services import video_service
+from backend.utils.streaming import stream_file_response
 
 router = APIRouter(tags=["videos"])
+
+MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_MB", "2048")) * 1024 * 1024
 
 
 class DownloadRequest(BaseModel):
@@ -49,8 +52,7 @@ async def download_video(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    db_url = os.getenv("DATABASE_URL", "mysql+asyncmy://shotcut:shotcut_pass@localhost:3306/shotcut")
-    background_tasks.add_task(video_service.run_download, video.id, req.url, db_url)
+    background_tasks.add_task(video_service.run_download, video.id, req.url, DATABASE_URL)
     return video
 
 
@@ -60,11 +62,14 @@ async def upload_video(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    content = await file.read()
     try:
-        video = await video_service.create_upload(db, file.filename or "video.mp4", content, user_id=current_user.id)
+        video = await video_service.create_upload_stream(
+            db, file.filename or "video.mp4", file, MAX_UPLOAD_SIZE, user_id=current_user.id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except video_service.FileTooLargeError:
+        raise HTTPException(status_code=413, detail=f"檔案大小超過上限（{MAX_UPLOAD_SIZE // 1024 // 1024} MB）")
     return video
 
 
@@ -130,45 +135,7 @@ async def stream_video(
 
     file_path = video.file_path
     file_size = os.path.getsize(file_path)
-    range_header = request.headers.get("range")
-
-    if range_header:
-        # 解析 Range: bytes=start-end
-        range_spec = range_header.replace("bytes=", "")
-        parts = range_spec.split("-")
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if parts[1] else file_size - 1
-        end = min(end, file_size - 1)
-        content_length = end - start + 1
-
-        def iter_file():
-            with open(file_path, "rb") as f:
-                f.seek(start)
-                remaining = content_length
-                while remaining > 0:
-                    chunk = f.read(min(8192, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
-
-        return StreamingResponse(
-            iter_file(),
-            status_code=206,
-            media_type="video/mp4",
-            headers={
-                "Content-Range": f"bytes {start}-{end}/{file_size}",
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(content_length),
-            },
-        )
-
-    # 無 Range header：回傳完整檔案
-    return FileResponse(
-        file_path,
-        media_type="video/mp4",
-        headers={"Accept-Ranges": "bytes"},
-    )
+    return stream_file_response(file_path, file_size, request.headers.get("range"))
 
 
 @router.get("/videos/{video_id}/status", response_model=VideoOut)

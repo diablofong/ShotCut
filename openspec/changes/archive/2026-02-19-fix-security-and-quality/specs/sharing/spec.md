@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: 建立分享連結
 系統 SHALL 支援為精華剪輯產生具有唯一識別碼的分享連結。分享連結過期判斷 MUST 使用 timezone-aware 的 UTC 時間（`datetime.now(timezone.utc)`），不得使用已棄用的 `datetime.utcnow()`。
@@ -29,21 +29,3 @@
 #### Scenario: 無效的 Range header
 - **WHEN** 串流請求包含無效的 Range header（如負數、start > end、超出檔案大小）
 - **THEN** 系統 SHALL 回傳 416 Range Not Satisfiable
-
-### Requirement: 分享連結管理
-系統 SHALL 提供分享連結的查詢與刪除功能。
-
-#### Scenario: 查詢分享連結列表
-- **WHEN** 使用者查詢某部精華剪輯的分享連結
-- **THEN** 系統回傳該精華剪輯的所有分享連結，包含 token、建立時間、存取次數
-
-#### Scenario: 刪除分享連結
-- **WHEN** 使用者刪除一個分享連結
-- **THEN** 系統使該 token 失效，後續存取 SHALL 回傳 404
-
-### Requirement: 存取計數
-系統 SHALL 記錄每個分享連結的存取次數。
-
-#### Scenario: 記錄存取
-- **WHEN** 訪客透過分享連結觀看精華剪輯
-- **THEN** 系統將該連結的存取次數加 1

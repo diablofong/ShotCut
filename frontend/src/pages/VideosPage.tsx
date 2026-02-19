@@ -103,28 +103,25 @@ export default function VideosPage() {
     fetchVideos();
   }, [fetchVideos]);
 
+  const hasInProgress = videos.some((v) => v.status === 'pending' || v.status === 'downloading');
+
   useEffect(() => {
-    const hasInProgress = videos.some((v) => v.status === 'pending' || v.status === 'downloading');
-    if (hasInProgress) {
-      pollingRef.current = setInterval(async () => {
+    if (!hasInProgress) return;
+
+    pollingRef.current = setInterval(async () => {
+      try {
         const res = await videoApi.list();
         setVideos(res.data);
-        const stillInProgress = (res.data as Video[]).some(
-          (v) => v.status === 'pending' || v.status === 'downloading',
-        );
-        if (!stillInProgress && pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-      }, 2000);
-    }
+      } catch { /* polling 失敗時靜默忽略 */ }
+    }, 2000);
+
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
     };
-  }, [videos]);
+  }, [hasInProgress]);
 
   const handleDownload = async () => {
     if (!youtubeUrl.trim()) return;

@@ -9,9 +9,15 @@ import yt_dlp
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import UploadFile
+
 from backend.models.video import Video
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
+
+
+class FileTooLargeError(Exception):
+    pass
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -46,101 +52,102 @@ async def _async_download(video_id: int, url: str, db_url: str):
     from sqlalchemy.orm import sessionmaker
 
     engine = create_async_engine(db_url)
-    session_factory = sessionmaker(engine, class_=AS, expire_on_commit=False)
+    try:
+        session_factory = sessionmaker(engine, class_=AS, expire_on_commit=False)
 
-    async with session_factory() as db:
-        video = await db.get(Video, video_id)
-        if not video:
-            return
+        async with session_factory() as db:
+            video = await db.get(Video, video_id)
+            if not video:
+                return
 
-        video.status = "downloading"
-        video.download_progress = 0.0
-        await db.commit()
+            video.status = "downloading"
+            video.download_progress = 0.0
+            await db.commit()
 
-        output_dir = _video_dir(video_id)
-        output_path = os.path.join(output_dir, "original.%(ext)s")
+            output_dir = _video_dir(video_id)
+            output_path = os.path.join(output_dir, "original.%(ext)s")
 
-        # 共享進度資料，由 progress_hook（在下載執行緒）寫入
-        progress = {"percent": 0.0, "speed": None, "eta": None, "updated": False}
-        download_done = False
+            # 共享進度資料，由 progress_hook（在下載執行緒）寫入
+            progress = {"percent": 0.0, "speed": None, "eta": None, "updated": False}
+            download_done = False
 
-        def progress_hook(d):
-            if d["status"] == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                downloaded_bytes = d.get("downloaded_bytes", 0)
-                progress["percent"] = (downloaded_bytes / total * 100) if total else 0
-                progress["speed"] = d.get("speed")
-                progress["eta"] = d.get("eta")
-                progress["updated"] = True
+            def progress_hook(d):
+                if d["status"] == "downloading":
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    downloaded_bytes = d.get("downloaded_bytes", 0)
+                    progress["percent"] = (downloaded_bytes / total * 100) if total else 0
+                    progress["speed"] = d.get("speed")
+                    progress["eta"] = d.get("eta")
+                    progress["updated"] = True
 
-        async def flush_progress():
-            """每 2 秒將進度寫入 DB"""
-            while not download_done:
-                if progress["updated"]:
-                    video.download_progress = round(progress["percent"], 1)
-                    video.download_speed = progress["speed"]
-                    video.download_eta = int(progress["eta"]) if progress["eta"] else None
-                    progress["updated"] = False
-                    await db.commit()
-                await asyncio.sleep(2)
+            async def flush_progress():
+                """每 2 秒將進度寫入 DB"""
+                while not download_done:
+                    if progress["updated"]:
+                        video.download_progress = round(progress["percent"], 1)
+                        video.download_speed = progress["speed"]
+                        video.download_eta = int(progress["eta"]) if progress["eta"] else None
+                        progress["updated"] = False
+                        await db.commit()
+                    await asyncio.sleep(2)
 
-        try:
-            ydl_opts = {
-                "format": "best[ext=mp4]/best",
-                "outtmpl": output_path,
-                "quiet": True,
-                "no_warnings": True,
-                "js_runtimes": {"node": {}},
-                "remote_components": {"ejs:github"},
-                "progress_hooks": [progress_hook],
-            }
+            try:
+                ydl_opts = {
+                    "format": "best[ext=mp4]/best",
+                    "outtmpl": output_path,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "progress_hooks": [progress_hook],
+                }
 
-            loop = asyncio.get_event_loop()
-            flush_task = asyncio.ensure_future(flush_progress())
+                loop = asyncio.get_event_loop()
+                flush_task = asyncio.ensure_future(flush_progress())
 
-            def do_download():
+                def do_download():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        return ydl.extract_info(url, download=True)
+
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    info = await loop.run_in_executor(executor, do_download)
+
+                download_done = True
+                await flush_task
+
+                if info is None:
+                    raise RuntimeError("無法取得影片資訊")
+
+                video.title = info.get("title", "未知標題")
+                video.duration = info.get("duration")
+
+                # 找到下載的檔案
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    return ydl.extract_info(url, download=True)
+                    downloaded = ydl.prepare_filename(info)
+                video.file_path = downloaded
+                video.file_size = os.path.getsize(downloaded) if os.path.exists(downloaded) else None
+                video.status = "completed"
+                video.download_progress = 100.0
+                video.download_speed = None
+                video.download_eta = None
 
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                info = await loop.run_in_executor(executor, do_download)
+                # 產生縮圖
+                from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
+                thumb_path = get_video_thumbnail_path(video_id)
+                if generate_thumbnail(downloaded, thumb_path):
+                    video.thumbnail_path = thumb_path
 
-            download_done = True
-            await flush_task
+            except Exception as e:
+                download_done = True
+                video.status = "failed"
+                video.error_message = str(e)[:2000]
 
-            if info is None:
-                raise RuntimeError("無法取得影片資訊")
-
-            video.title = info.get("title", "未知標題")
-            video.duration = info.get("duration")
-
-            # 找到下載的檔案
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                downloaded = ydl.prepare_filename(info)
-            video.file_path = downloaded
-            video.file_size = os.path.getsize(downloaded) if os.path.exists(downloaded) else None
-            video.status = "completed"
-            video.download_progress = 100.0
-            video.download_speed = None
-            video.download_eta = None
-
-            # 產生縮圖
-            from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
-            thumb_path = get_video_thumbnail_path(video_id)
-            if generate_thumbnail(downloaded, thumb_path):
-                video.thumbnail_path = thumb_path
-
-        except Exception as e:
-            download_done = True
-            video.status = "failed"
-            video.error_message = str(e)[:2000]
-
-        await db.commit()
-
-    await engine.dispose()
+            await db.commit()
+    finally:
+        await engine.dispose()
 
 
-async def create_upload(db: AsyncSession, filename: str, content: bytes, user_id: int | None = None) -> Video:
+async def create_upload_stream(
+    db: AsyncSession, filename: str, file: UploadFile, max_size: int, user_id: int | None = None
+) -> Video:
     allowed_ext = {".mp4", ".avi", ".mov", ".mkv"}
     ext = os.path.splitext(filename)[1].lower()
     if ext not in allowed_ext:
@@ -153,11 +160,26 @@ async def create_upload(db: AsyncSession, filename: str, content: bytes, user_id
 
     output_dir = _video_dir(video.id)
     file_path = os.path.join(output_dir, f"original{ext}")
-    with open(file_path, "wb") as f:
-        f.write(content)
+    total_written = 0
+    try:
+        with open(file_path, "wb") as f:
+            while True:
+                chunk = await file.read(8192)
+                if not chunk:
+                    break
+                total_written += len(chunk)
+                if total_written > max_size:
+                    raise FileTooLargeError()
+                f.write(chunk)
+    except FileTooLargeError:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        await db.delete(video)
+        await db.commit()
+        raise
 
     video.file_path = file_path
-    video.file_size = len(content)
+    video.file_size = total_written
 
     # 產生縮圖
     from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
