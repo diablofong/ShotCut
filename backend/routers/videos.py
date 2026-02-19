@@ -42,7 +42,17 @@ class VideoOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.post("/videos/download", response_model=VideoOut)
+@router.post(
+    "/videos/download",
+    response_model=VideoOut,
+    summary="從 YouTube 下載影片",
+    description="提交 YouTube 網址，後台非同步下載。回傳初始 Video 物件（status=pending）。下載進度可透過 WebSocket `/videos/{id}/ws/progress` 接收。限制每 IP 每小時最多 10 次。",
+    responses={
+        200: {"description": "已建立下載任務"},
+        400: {"description": "非 YouTube 連結"},
+        429: {"description": "請求過於頻繁"},
+    },
+)
 @limiter.limit("10/hour")
 async def download_video(
     request: Request,
@@ -62,7 +72,18 @@ async def download_video(
     return video
 
 
-@router.post("/videos/upload", response_model=VideoOut)
+@router.post(
+    "/videos/upload",
+    response_model=VideoOut,
+    summary="上傳影片檔案",
+    description="上傳本機影片（支援 .mp4 / .avi / .mov / .mkv），同步完成並立即產生縮圖。檔案大小上限由 `MAX_UPLOAD_SIZE_MB` 環境變數控制（預設 2048 MB）。限制每 IP 每小時最多 10 次。",
+    responses={
+        200: {"description": "上傳成功，status=completed"},
+        400: {"description": "不支援的檔案格式"},
+        413: {"description": "檔案超過大小上限"},
+        429: {"description": "請求過於頻繁"},
+    },
+)
 @limiter.limit("10/hour")
 async def upload_video(
     request: Request,
@@ -82,7 +103,13 @@ async def upload_video(
     return video
 
 
-@router.get("/videos", response_model=list[VideoOut])
+@router.get(
+    "/videos",
+    response_model=list[VideoOut],
+    summary="影片列表",
+    description="回傳目前使用者的所有影片，依建立時間倒序排列。管理員可看到所有使用者的影片。支援 `limit`（最多 500）與 `offset` 分頁。",
+    responses={401: {"description": "未登入"}},
+)
 async def list_videos(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -94,7 +121,17 @@ async def list_videos(
     return await video_service.list_videos(db, owner_id=current_user.id, limit=limit, offset=offset)
 
 
-@router.get("/videos/{video_id}", response_model=VideoOut)
+@router.get(
+    "/videos/{video_id}",
+    response_model=VideoOut,
+    summary="取得單一影片",
+    description="回傳指定影片的詳細資訊。一般使用者只能存取自己的影片，管理員可存取所有影片。",
+    responses={
+        401: {"description": "未登入"},
+        403: {"description": "無權存取此影片"},
+        404: {"description": "影片不存在"},
+    },
+)
 async def get_video(
     video_id: int,
     db: AsyncSession = Depends(get_db),

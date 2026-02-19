@@ -1,77 +1,84 @@
 # ShotCut
 
-籃球比賽影片標記與片段擷取工具。上傳比賽影片，快速標記分類並自動剪輯出精華片段，分享給教練與家長。
+A basketball game video tagging and clip extraction tool. Upload match footage, quickly tag and classify plays, auto-generate highlight clips, and share them with coaches and parents.
 
-## 功能特色
+> 中文說明請見 [README.zh-TW.md](README.zh-TW.md)
 
-- **影片管理** — 支援本機上傳與 YouTube 連結匯入（yt-dlp），表格式管理介面含搜尋與縮圖預覽
-- **下載進度即時推送** — WebSocket 即時顯示 YouTube 下載進度（速度/剩餘時間），斷線自動降級為 polling
-- **軌道式快速標記** — 播放中按數字鍵 1-3 即時標記進攻/防守/失誤，時間軸色塊拖曳微調
-- **球員標註** — 支援標註球員編號與姓名（如「7 林書豪, 11 王大明」）
-- **自動片段擷取** — 透過 FFmpeg 依據標記自動切出影片片段
-- **個人精華剪輯** — 依球員或分類自動合併產出個人精華影片
-- **分享連結** — 產生分享連結（支援 24h/7d/30d/永久有效期）供教練與家長觀看
-- **播放速度控制** — 支援 0.25x ~ 2x 播放速度（慢動作回放/快速瀏覽）
-- **安全認證** — JWT Access Token（15 分鐘）+ Refresh Token（7 天，httpOnly Cookie）、角色權限（管理員/一般使用者）、資料隔離
+## Screenshots
 
-## 技術架構
+> **Demo screenshots coming soon.** To add screenshots, place images in `docs/screenshots/` and update this section.
 
-| 層級 | 技術 |
-|------|------|
-| 前端 | React 19 + TypeScript + Vite + Tailwind CSS + Video.js |
-| 後端 | Python 3.11 + FastAPI + SQLAlchemy (async) |
-| 資料庫 | MariaDB 11 |
-| 影片處理 | FFmpeg |
-| 影片下載 | yt-dlp |
-| 即時通訊 | WebSocket（FastAPI 原生） |
-| 安全防護 | slowapi rate limiting、bcrypt 密碼加密 |
-| 部署 | Docker + Docker Compose |
+<!-- Suggested screenshots:
+- Video list page with thumbnails and download progress
+- Video player with mark timeline
+- Highlight generation dialog
+- Share link page (public view)
+-->
 
-## 快速開始
+## Features
 
-### 環境需求
+- **Video Management** — Upload local files or import via YouTube URL (yt-dlp); table UI with search and thumbnail preview
+- **Real-time Download Progress** — WebSocket pushes YouTube download progress (speed / ETA); falls back to polling on disconnect
+- **Quick Tagging** — Press keys 1–3 during playback to tag Offense / Defense / Turnover; drag timeline blocks to fine-tune timestamps
+- **Player Annotation** — Tag player numbers and names (e.g. "7 LeBron, 23 Jordan")
+- **Auto Clip Extraction** — FFmpeg cuts clips automatically based on marks
+- **Personal Highlight Reels** — Merge clips by player or category into a highlight video
+- **Share Links** — Generate share links (24h / 7d / 30d / permanent) for coaches and parents to view without login
+- **Playback Speed Control** — 0.25x – 2x speed (slow-motion review / quick scan)
+- **Secure Authentication** — JWT Access Token (15 min) + Refresh Token (7 days, httpOnly Cookie); role-based access (admin / user); data isolation
 
-- [Docker](https://www.docker.com/) 與 Docker Compose
+## Tech Stack
 
-### 使用 Docker（推薦）
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19 + TypeScript + Vite + Tailwind CSS + Video.js |
+| Backend | Python 3.11 + FastAPI + SQLAlchemy (async) |
+| Database | MariaDB 11 |
+| Video Processing | FFmpeg |
+| Video Download | yt-dlp |
+| Real-time | WebSocket (FastAPI native) |
+| Security | slowapi rate limiting, bcrypt password hashing |
+| Deployment | Docker + Docker Compose |
+
+## Quick Start
+
+### Requirements
+
+- [Docker](https://www.docker.com/) and Docker Compose
+
+### Using Docker (recommended)
 
 ```bash
-# 複製環境變數範本
+# Copy environment template
 cp .env.example .env
 
-# 依需求修改 .env 中的密碼與設定
-# 必須修改：SECRET_KEY、ADMIN_PASSWORD、資料庫密碼
+# Edit .env — you must change: SECRET_KEY, ADMIN_PASSWORD, database passwords
 
-# 啟動服務
+# Start services
 docker compose up -d
 ```
 
-啟動後開啟瀏覽器前往 `http://localhost:8000`。
+Open `http://localhost:8000` in your browser.
 
-### 本機開發
+### Local Development
 
-**後端：**
+**Backend:**
 
 ```bash
-# 建立虛擬環境
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# 安裝依賴
 pip install -r backend/requirements.txt
 
-# 設定環境變數
 cp .env.example .env
-# 編輯 .env 中的 DATABASE_URL 指向你的 MariaDB
+# Edit DATABASE_URL to point to your MariaDB instance
 
-# 執行資料庫遷移
 alembic upgrade head
 
-# 啟動開發伺服器
 uvicorn backend.main:app --reload
 ```
 
-**前端：**
+**Frontend:**
 
 ```bash
 cd frontend
@@ -79,94 +86,97 @@ npm install
 npm run dev
 ```
 
-前端開發伺服器預設在 `http://localhost:5173`，後端 API 在 `http://localhost:8000`。
+Frontend dev server: `http://localhost:5173` — Backend API: `http://localhost:8000`
 
-## 執行測試
+## Running Tests
 
-測試使用 SQLite in-memory，不需要額外的 MariaDB 實例：
+Tests use SQLite in-memory — no MariaDB instance required:
 
 ```bash
-# 在 Docker 容器中執行（推薦，不需要本機 Python 環境）
+# Run inside Docker (recommended — no local Python needed)
 docker run --rm \
   --entrypoint python \
   -e DATABASE_URL="sqlite+aiosqlite:///:memory:" \
   -e SECRET_KEY="test-secret-key" \
   shotcut-app \
-  -m pytest backend/tests/ -v
+  -m pytest backend/tests/ -v --cov=backend
 ```
 
-## 環境變數
+## Environment Variables
 
-| 變數名稱 | 必填 | 預設值 | 說明 |
-|---------|------|--------|------|
-| `DATABASE_URL` | ✅ | — | MariaDB 連線字串 |
-| `SECRET_KEY` | ✅ | — | JWT 簽署密鑰（隨機長字串） |
-| `ADMIN_USERNAME` | | `admin` | 初始管理員帳號 |
-| `ADMIN_PASSWORD` | | `admin1234` | 初始管理員密碼（務必修改） |
-| `JWT_ACCESS_EXPIRE_MINUTES` | | `15` | Access Token 有效期（分鐘） |
-| `JWT_REFRESH_EXPIRE_DAYS` | | `7` | Refresh Token 有效期（天） |
-| `CORS_ORIGINS` | | `""` | 允許的 CORS 來源（逗號分隔） |
-| `MAX_UPLOAD_SIZE_MB` | | `2048` | 上傳檔案大小上限（MB） |
-| `FFMPEG_TIMEOUT` | | `300` | FFmpeg 處理超時（秒） |
-| `APP_PORT` | | `8000` | 對外開放的連接埠 |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | ✅ | — | MariaDB connection string |
+| `SECRET_KEY` | ✅ | — | JWT signing key (random string) |
+| `ADMIN_USERNAME` | | `admin` | Initial admin account |
+| `ADMIN_PASSWORD` | | `admin1234` | Initial admin password **(change this)** |
+| `JWT_ACCESS_EXPIRE_MINUTES` | | `15` | Access token lifetime (minutes) |
+| `JWT_REFRESH_EXPIRE_DAYS` | | `7` | Refresh token lifetime (days) |
+| `CORS_ORIGINS` | | `""` | Allowed CORS origins (comma-separated) |
+| `MAX_UPLOAD_SIZE_MB` | | `2048` | Upload size limit (MB) |
+| `FFMPEG_TIMEOUT` | | `300` | FFmpeg processing timeout (seconds) |
+| `APP_PORT` | | `8000` | Exposed port |
 
-## 專案結構
+## Project Structure
 
 ```
 ShotCut/
-├── backend/                # FastAPI 後端
-│   ├── auth/               # JWT 認證與權限控制
-│   ├── db/                 # 資料庫連線設定
-│   ├── models/             # SQLAlchemy 資料模型
-│   ├── routers/            # API 路由
-│   ├── scripts/            # 管理腳本（種子資料等）
-│   ├── services/           # 業務邏輯
-│   ├── tests/              # 整合測試（pytest + httpx）
-│   ├── config.py           # 集中化設定管理（pydantic-settings）
-│   ├── limiter.py          # Rate limiting（slowapi）
-│   ├── websocket_manager.py# WebSocket 連線管理
-│   └── main.py             # 應用程式進入點
-├── frontend/               # React 前端
+├── backend/                # FastAPI backend
+│   ├── auth/               # JWT auth & permissions
+│   ├── db/                 # Database connection
+│   ├── models/             # SQLAlchemy ORM models
+│   ├── routers/            # API routes
+│   ├── services/           # Business logic
+│   ├── tests/              # Integration tests (pytest + httpx)
+│   ├── config.py           # Centralized settings (pydantic-settings)
+│   ├── limiter.py          # Rate limiting (slowapi)
+│   ├── websocket_manager.py# WebSocket connection manager
+│   └── main.py             # Application entry point
+├── frontend/               # React frontend
 │   └── src/
-│       ├── components/     # 共用元件
-│       ├── contexts/       # React Context（認證等）
-│       ├── hooks/          # 自訂 Hooks
-│       ├── pages/          # 頁面元件
-│       └── services/       # API 服務層
-├── alembic/                # 資料庫遷移
+│       ├── components/     # Shared components
+│       ├── contexts/       # React contexts (auth, etc.)
+│       ├── hooks/          # Custom hooks
+│       ├── pages/          # Page components
+│       └── services/       # API service layer
+├── alembic/                # Database migrations
 ├── .github/workflows/      # GitHub Actions CI/CD
-│   ├── backend-ci.yml      # 後端 lint + 測試
-│   └── frontend-ci.yml     # 前端 lint + 型別檢查
-├── data/                   # 運行時資料（git 忽略）
-│   ├── uploads/            # 上傳影片
-│   ├── clips/              # 擷取片段
-│   ├── highlights/         # 精華剪輯
-│   ├── thumbnails/         # 縮圖快取
-│   └── db/                 # MariaDB 資料
-├── openspec/               # OpenSpec 規格文件
-│   ├── specs/              # 主規格（各模組 spec）
-│   └── changes/            # 變更記錄與歸檔
-├── docker-compose.yml      # 生產環境部署
-├── docker-compose.dev.yml  # 開發環境
+│   ├── backend-ci.yml      # Backend lint + tests
+│   └── frontend-ci.yml     # Frontend lint + type check
+├── data/                   # Runtime data (git-ignored)
+│   ├── uploads/
+│   ├── clips/
+│   ├── highlights/
+│   ├── thumbnails/
+│   └── db/
+├── openspec/               # OpenSpec design documents
+├── docker-compose.yml      # Production deployment
+├── docker-compose.dev.yml  # Development environment
 └── Dockerfile
 ```
 
-## API 端點
+## API Endpoints
 
-所有 API 端點皆在 `/api` 前綴下：
+All endpoints are under the `/api` prefix:
 
-- `GET /api/health` — 健康檢查（無需認證）
-- `/api/auth` — 認證（登入、登出、Refresh Token、當前使用者）
-- `/api/users` — 使用者管理（管理員）
-- `/api/videos` — 影片管理
-- `WS /api/videos/{id}/ws/progress` — 下載進度 WebSocket
-- `/api/marks` — 時間標記
-- `/api/clips` — 片段擷取
-- `/api/highlights` — 精華剪輯
-- `/api/shares` — 分享連結
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/health` | Health check (no auth required) |
+| `POST /api/auth/login` | Login — returns Access Token + sets Refresh Token cookie |
+| `POST /api/auth/refresh` | Exchange Refresh Token for new Access Token |
+| `POST /api/auth/logout` | Revoke Refresh Token and clear cookie |
+| `GET /api/auth/me` | Current user info |
+| `GET /api/videos` | List videos |
+| `POST /api/videos/upload` | Upload a video file |
+| `POST /api/videos/download` | Import from YouTube URL |
+| `WS /api/videos/{id}/ws/progress` | Real-time download progress (WebSocket) |
+| `GET /api/marks` | List marks for a video |
+| `POST /api/clips` | Extract clips from marks |
+| `POST /api/highlights/generate` | Generate highlight reel |
+| `POST /api/shares` | Create share link |
 
-完整 API 文件可在服務啟動後前往 `http://localhost:8000/docs` 查看（Swagger UI）。
+Full interactive API docs: `http://localhost:8000/docs` (Swagger UI)
 
-## 授權條款
+## License
 
-本專案採用 [MIT License](LICENSE) 授權。
+[MIT License](LICENSE)
