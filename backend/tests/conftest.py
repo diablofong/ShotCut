@@ -19,11 +19,11 @@ from backend.main import app
 from backend.auth.security import hash_password, create_access_token
 from backend.models.user import User
 from backend.models.video import Video
-from backend.models.mark import Mark, MarkPlayer
-from backend.models.clip import Clip
-from backend.models.highlight import Highlight
-from backend.models.share_link import ShareLink
-from backend.models.refresh_token import RefreshToken
+from backend.models.mark import Mark, MarkPlayer  # noqa: F401
+from backend.models.clip import Clip  # noqa: F401
+from backend.models.highlight import Highlight  # noqa: F401
+from backend.models.share_link import ShareLink  # noqa: F401
+from backend.models.refresh_token import RefreshToken  # noqa: F401
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 

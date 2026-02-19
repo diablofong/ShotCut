@@ -72,7 +72,7 @@ async def extract_clips(
 ):
     await verify_video_owner(video_id, db, current_user)
     try:
-        clips = await clip_service.extract_all_clips(db, video_id)
+        await clip_service.extract_all_clips(db, video_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     # Re-fetch with mark relationships loaded

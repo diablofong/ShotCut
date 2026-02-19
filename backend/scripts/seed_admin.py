@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 from backend.auth.security import hash_password
 from backend.models.user import User
-from backend.db.database import Base
 
 
 async def seed():

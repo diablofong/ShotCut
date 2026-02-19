@@ -13,7 +13,6 @@ from backend.auth.security import (
     revoke_refresh_token,
 )
 from backend.auth.dependencies import get_current_user
-from backend.config import get_settings
 from backend.limiter import limiter
 from backend.models.user import User
 

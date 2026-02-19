@@ -232,7 +232,7 @@ async def websocket_progress(
         return
 
     try:
-        current_user = await get_current_user_from_token(token, db)
+        await get_current_user_from_token(token, db)
     except Exception:
         await websocket.close(code=4001)
         return
