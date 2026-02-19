@@ -4,15 +4,14 @@ import os
 import subprocess
 import tempfile
 
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import get_settings
 from backend.models.clip import Clip
 from backend.models.highlight import Highlight, HighlightClip
 from backend.models.mark import Mark, MarkPlayer
 
-HIGHLIGHT_DIR = os.getenv("HIGHLIGHT_DIR", "./highlights")
-FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "300"))
 logger = logging.getLogger(__name__)
 
 CATEGORY_LABELS = {
@@ -30,6 +29,7 @@ async def generate_highlight(
     user_id: int | None = None,
 ) -> Highlight:
     """依球員/標籤篩選片段，合併為精華剪輯（支援多選）"""
+    settings = get_settings()
     from backend.models.video import Video
     stmt = select(Clip).where(Clip.status == "completed").join(Mark).join(Video)
 
@@ -80,8 +80,8 @@ async def generate_highlight(
     await db.commit()
 
     # FFmpeg concat
-    os.makedirs(HIGHLIGHT_DIR, exist_ok=True)
-    output_path = os.path.join(HIGHLIGHT_DIR, f"{highlight.id}.mp4")
+    os.makedirs(settings.highlight_dir, exist_ok=True)
+    output_path = os.path.join(settings.highlight_dir, f"{highlight.id}.mp4")
 
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -100,7 +100,7 @@ async def generate_highlight(
             ],
             capture_output=True,
             check=True,
-            timeout=FFMPEG_TIMEOUT,
+            timeout=settings.ffmpeg_timeout,
         )
         os.unlink(concat_file)
 
@@ -138,7 +138,6 @@ async def delete_highlight(db: AsyncSession, highlight_id: int) -> None:
     """刪除精華剪輯：實體檔案 + 關聯分享 + DB 記錄"""
     from sqlalchemy.orm import selectinload
 
-    # 預先載入關聯（避免 async lazy loading 錯誤）
     stmt = select(Highlight).where(Highlight.id == highlight_id).options(
         selectinload(Highlight.clips),
         selectinload(Highlight.share_links),
@@ -148,11 +147,9 @@ async def delete_highlight(db: AsyncSession, highlight_id: int) -> None:
     if not highlight:
         return
 
-    # 刪除實體檔案
     if highlight.file_path and os.path.exists(highlight.file_path):
         os.remove(highlight.file_path)
 
-    # cascade="all, delete-orphan" 自動刪除關聯的 HighlightClip 和 ShareLink
     await db.delete(highlight)
     await db.commit()
 

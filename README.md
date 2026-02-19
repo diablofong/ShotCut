@@ -5,13 +5,14 @@
 ## 功能特色
 
 - **影片管理** — 支援本機上傳與 YouTube 連結匯入（yt-dlp），表格式管理介面含搜尋與縮圖預覽
+- **下載進度即時推送** — WebSocket 即時顯示 YouTube 下載進度（速度/剩餘時間），斷線自動降級為 polling
 - **軌道式快速標記** — 播放中按數字鍵 1-3 即時標記進攻/防守/失誤，時間軸色塊拖曳微調
 - **球員標註** — 支援標註球員編號與姓名（如「7 林書豪, 11 王大明」）
 - **自動片段擷取** — 透過 FFmpeg 依據標記自動切出影片片段
 - **個人精華剪輯** — 依球員或分類自動合併產出個人精華影片
 - **分享連結** — 產生分享連結（支援 24h/7d/30d/永久有效期）供教練與家長觀看
 - **播放速度控制** — 支援 0.25x ~ 2x 播放速度（慢動作回放/快速瀏覽）
-- **使用者認證** — JWT 認證、角色權限（管理員/一般使用者）、資料隔離
+- **安全認證** — JWT Access Token（15 分鐘）+ Refresh Token（7 天，httpOnly Cookie）、角色權限（管理員/一般使用者）、資料隔離
 
 ## 技術架構
 
@@ -22,6 +23,8 @@
 | 資料庫 | MariaDB 11 |
 | 影片處理 | FFmpeg |
 | 影片下載 | yt-dlp |
+| 即時通訊 | WebSocket（FastAPI 原生） |
+| 安全防護 | slowapi rate limiting、bcrypt 密碼加密 |
 | 部署 | Docker + Docker Compose |
 
 ## 快速開始
@@ -29,7 +32,6 @@
 ### 環境需求
 
 - [Docker](https://www.docker.com/) 與 Docker Compose
-- 或手動安裝：Node.js 20+、Python 3.11+、FFmpeg、MariaDB
 
 ### 使用 Docker（推薦）
 
@@ -38,6 +40,7 @@
 cp .env.example .env
 
 # 依需求修改 .env 中的密碼與設定
+# 必須修改：SECRET_KEY、ADMIN_PASSWORD、資料庫密碼
 
 # 啟動服務
 docker compose up -d
@@ -78,6 +81,35 @@ npm run dev
 
 前端開發伺服器預設在 `http://localhost:5173`，後端 API 在 `http://localhost:8000`。
 
+## 執行測試
+
+測試使用 SQLite in-memory，不需要額外的 MariaDB 實例：
+
+```bash
+# 在 Docker 容器中執行（推薦，不需要本機 Python 環境）
+docker run --rm \
+  --entrypoint python \
+  -e DATABASE_URL="sqlite+aiosqlite:///:memory:" \
+  -e SECRET_KEY="test-secret-key" \
+  shotcut-app \
+  -m pytest backend/tests/ -v
+```
+
+## 環境變數
+
+| 變數名稱 | 必填 | 預設值 | 說明 |
+|---------|------|--------|------|
+| `DATABASE_URL` | ✅ | — | MariaDB 連線字串 |
+| `SECRET_KEY` | ✅ | — | JWT 簽署密鑰（隨機長字串） |
+| `ADMIN_USERNAME` | | `admin` | 初始管理員帳號 |
+| `ADMIN_PASSWORD` | | `admin1234` | 初始管理員密碼（務必修改） |
+| `JWT_ACCESS_EXPIRE_MINUTES` | | `15` | Access Token 有效期（分鐘） |
+| `JWT_REFRESH_EXPIRE_DAYS` | | `7` | Refresh Token 有效期（天） |
+| `CORS_ORIGINS` | | `""` | 允許的 CORS 來源（逗號分隔） |
+| `MAX_UPLOAD_SIZE_MB` | | `2048` | 上傳檔案大小上限（MB） |
+| `FFMPEG_TIMEOUT` | | `300` | FFmpeg 處理超時（秒） |
+| `APP_PORT` | | `8000` | 對外開放的連接埠 |
+
 ## 專案結構
 
 ```
@@ -89,6 +121,10 @@ ShotCut/
 │   ├── routers/            # API 路由
 │   ├── scripts/            # 管理腳本（種子資料等）
 │   ├── services/           # 業務邏輯
+│   ├── tests/              # 整合測試（pytest + httpx）
+│   ├── config.py           # 集中化設定管理（pydantic-settings）
+│   ├── limiter.py          # Rate limiting（slowapi）
+│   ├── websocket_manager.py# WebSocket 連線管理
 │   └── main.py             # 應用程式進入點
 ├── frontend/               # React 前端
 │   └── src/
@@ -98,6 +134,9 @@ ShotCut/
 │       ├── pages/          # 頁面元件
 │       └── services/       # API 服務層
 ├── alembic/                # 資料庫遷移
+├── .github/workflows/      # GitHub Actions CI/CD
+│   ├── backend-ci.yml      # 後端 lint + 測試
+│   └── frontend-ci.yml     # 前端 lint + 型別檢查
 ├── data/                   # 運行時資料（git 忽略）
 │   ├── uploads/            # 上傳影片
 │   ├── clips/              # 擷取片段
@@ -116,13 +155,17 @@ ShotCut/
 
 所有 API 端點皆在 `/api` 前綴下：
 
-- `/api/auth` — 認證登入
+- `GET /api/health` — 健康檢查（無需認證）
+- `/api/auth` — 認證（登入、登出、Refresh Token、當前使用者）
 - `/api/users` — 使用者管理（管理員）
 - `/api/videos` — 影片管理
+- `WS /api/videos/{id}/ws/progress` — 下載進度 WebSocket
 - `/api/marks` — 時間標記
 - `/api/clips` — 片段擷取
 - `/api/highlights` — 精華剪輯
 - `/api/shares` — 分享連結
+
+完整 API 文件可在服務啟動後前往 `http://localhost:8000/docs` 查看（Swagger UI）。
 
 ## 授權條款
 

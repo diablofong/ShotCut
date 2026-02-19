@@ -6,17 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.config import get_settings
 from backend.models.clip import Clip
 from backend.models.mark import Mark, MarkPlayer
 from backend.models.video import Video
 
-CLIP_DIR = os.getenv("CLIP_DIR", "./clips")
-FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "300"))
 logger = logging.getLogger(__name__)
 
 
 async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
     """從影片切割單一標記對應的片段"""
+    settings = get_settings()
     clip = Clip(
         video_id=video.id,
         mark_id=mark.id,
@@ -26,7 +26,7 @@ async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
     await db.commit()
     await db.refresh(clip)
 
-    output_dir = os.path.join(CLIP_DIR, str(video.id))
+    output_dir = os.path.join(settings.clip_dir, str(video.id))
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{mark.id}.mp4")
 
@@ -44,7 +44,7 @@ async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
             ],
             capture_output=True,
             check=True,
-            timeout=FFMPEG_TIMEOUT,
+            timeout=settings.ffmpeg_timeout,
         )
         clip.file_path = output_path
         clip.duration = duration

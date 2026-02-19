@@ -51,8 +51,10 @@ class ShareOut(BaseModel):
 
 def _check_share_expiration(share: ShareLink):
     """檢查分享連結是否已過期"""
-    if share.expires_at and datetime.now(timezone.utc) > share.expires_at:
-        raise HTTPException(status_code=410, detail="此分享連結已過期")
+    if share.expires_at:
+        expires_at = share.expires_at if share.expires_at.tzinfo else share.expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            raise HTTPException(status_code=410, detail="此分享連結已過期")
 
 
 @router.post("/shares", response_model=ShareOut)

@@ -2,7 +2,6 @@ import asyncio
 import os
 import re
 import shutil
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import yt_dlp
@@ -11,9 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import UploadFile
 
+from backend.config import get_settings
 from backend.models.video import Video
-
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
 
 
 class FileTooLargeError(Exception):
@@ -25,7 +23,8 @@ def _is_youtube_url(url: str) -> bool:
 
 
 def _video_dir(video_id: int) -> str:
-    path = os.path.join(UPLOAD_DIR, str(video_id))
+    upload_dir = get_settings().upload_dir
+    path = os.path.join(upload_dir, str(video_id))
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -41,13 +40,12 @@ async def create_download(db: AsyncSession, url: str, user_id: int | None = None
     return video
 
 
-def run_download(video_id: int, url: str, db_url: str):
+def run_download(video_id: int, url: str, db_url: str, main_loop: asyncio.AbstractEventLoop | None = None):
     """在背景執行的同步下載函式（由 BackgroundTasks 呼叫）"""
-    import asyncio
-    asyncio.run(_async_download(video_id, url, db_url))
+    asyncio.run(_async_download(video_id, url, db_url, main_loop))
 
 
-async def _async_download(video_id: int, url: str, db_url: str):
+async def _async_download(video_id: int, url: str, db_url: str, main_loop: asyncio.AbstractEventLoop | None = None):
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession as AS
     from sqlalchemy.orm import sessionmaker
 
@@ -71,6 +69,12 @@ async def _async_download(video_id: int, url: str, db_url: str):
             progress = {"percent": 0.0, "speed": None, "eta": None, "updated": False}
             download_done = False
 
+            def _broadcast(data: dict):
+                """跨事件迴圈廣播至 WebSocket 用戶端"""
+                if main_loop and main_loop.is_running():
+                    from backend.websocket_manager import manager as ws_manager
+                    asyncio.run_coroutine_threadsafe(ws_manager.broadcast(video_id, data), main_loop)
+
             def progress_hook(d):
                 if d["status"] == "downloading":
                     total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -81,14 +85,23 @@ async def _async_download(video_id: int, url: str, db_url: str):
                     progress["updated"] = True
 
             async def flush_progress():
-                """每 2 秒將進度寫入 DB"""
+                """每 2 秒將進度寫入 DB 並廣播至 WebSocket"""
                 while not download_done:
                     if progress["updated"]:
-                        video.download_progress = round(progress["percent"], 1)
-                        video.download_speed = progress["speed"]
-                        video.download_eta = int(progress["eta"]) if progress["eta"] else None
+                        pct = round(progress["percent"], 1)
+                        spd = progress["speed"]
+                        eta = int(progress["eta"]) if progress["eta"] else None
+                        video.download_progress = pct
+                        video.download_speed = spd
+                        video.download_eta = eta
                         progress["updated"] = False
                         await db.commit()
+                        _broadcast({
+                            "status": "downloading",
+                            "progress": pct,
+                            "speed": str(round(spd, 0)) if spd else None,
+                            "eta": eta,
+                        })
                     await asyncio.sleep(2)
 
             try:
@@ -135,10 +148,13 @@ async def _async_download(video_id: int, url: str, db_url: str):
                 if generate_thumbnail(downloaded, thumb_path):
                     video.thumbnail_path = thumb_path
 
+                _broadcast({"status": "completed", "progress": 100.0})
+
             except Exception as e:
                 download_done = True
                 video.status = "failed"
                 video.error_message = str(e)[:2000]
+                _broadcast({"status": "failed"})
 
             await db.commit()
     finally:
@@ -212,8 +228,8 @@ async def delete_video(db: AsyncSession, video_id: int) -> bool:
     if not video:
         return False
 
-    # 刪除檔案
-    video_dir = os.path.join(UPLOAD_DIR, str(video_id))
+    upload_dir = get_settings().upload_dir
+    video_dir = os.path.join(upload_dir, str(video_id))
     if os.path.isdir(video_dir):
         shutil.rmtree(video_dir, ignore_errors=True)
 

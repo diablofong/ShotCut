@@ -1,21 +1,21 @@
+import asyncio
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.database import get_db, DATABASE_URL
+from backend.config import get_settings
+from backend.db.database import get_db
 from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
 from backend.services import video_service
 from backend.utils.streaming import stream_file_response, validate_file_path
-
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
+from backend.websocket_manager import manager
+from backend.limiter import limiter
 
 router = APIRouter(tags=["videos"])
-
-MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_MB", "2048")) * 1024 * 1024
 
 
 class DownloadRequest(BaseModel):
@@ -43,7 +43,9 @@ class VideoOut(BaseModel):
 
 
 @router.post("/videos/download", response_model=VideoOut)
+@limiter.limit("10/hour")
 async def download_video(
+    request: Request,
     req: DownloadRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -54,24 +56,29 @@ async def download_video(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    background_tasks.add_task(video_service.run_download, video.id, req.url, DATABASE_URL)
+    settings = get_settings()
+    main_loop = asyncio.get_event_loop()
+    background_tasks.add_task(video_service.run_download, video.id, req.url, settings.database_url, main_loop)
     return video
 
 
 @router.post("/videos/upload", response_model=VideoOut)
+@limiter.limit("10/hour")
 async def upload_video(
+    request: Request,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    settings = get_settings()
     try:
         video = await video_service.create_upload_stream(
-            db, file.filename or "video.mp4", file, MAX_UPLOAD_SIZE, user_id=current_user.id
+            db, file.filename or "video.mp4", file, settings.max_upload_size_bytes, user_id=current_user.id
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except video_service.FileTooLargeError:
-        raise HTTPException(status_code=413, detail=f"檔案大小超過上限（{MAX_UPLOAD_SIZE // 1024 // 1024} MB）")
+        raise HTTPException(status_code=413, detail=f"檔案大小超過上限（{settings.max_upload_size_mb} MB）")
     return video
 
 
@@ -137,8 +144,9 @@ async def stream_video(
     if not video.file_path or not os.path.exists(video.file_path):
         raise HTTPException(status_code=404, detail="影片檔案不存在")
 
+    settings = get_settings()
     file_path = video.file_path
-    validate_file_path(file_path, UPLOAD_DIR)
+    validate_file_path(file_path, settings.upload_dir)
     file_size = os.path.getsize(file_path)
     return stream_file_response(file_path, file_size, request.headers.get("range"))
 
@@ -162,7 +170,6 @@ async def video_thumbnail(
     from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
 
     video = await verify_video_owner(video_id, db, current_user)
-    # Lazy 生成：若縮圖不存在但影片檔案存在，即時生成
     if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
         if video.file_path and os.path.exists(video.file_path):
             thumb_path = get_video_thumbnail_path(video.id)
@@ -172,3 +179,31 @@ async def video_thumbnail(
     if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
         raise HTTPException(status_code=404, detail="縮圖不存在")
     return FileResponse(video.thumbnail_path, media_type="image/jpeg")
+
+
+@router.websocket("/videos/{video_id}/ws/progress")
+async def websocket_progress(
+    websocket: WebSocket,
+    video_id: int,
+    token: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """WebSocket 即時推送影片下載進度"""
+    from backend.auth.dependencies import get_current_user_from_token
+    if not token:
+        await websocket.close(code=4001)
+        return
+
+    try:
+        current_user = await get_current_user_from_token(token, db)
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
+    await manager.connect(video_id, websocket)
+    try:
+        while True:
+            # 保持連線存活，等待 disconnect
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(video_id, websocket)

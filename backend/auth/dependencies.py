@@ -35,6 +35,24 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_from_token(token: str, db: AsyncSession) -> User:
+    """用於 WebSocket 認證（直接傳入 token 字串）"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="認證失敗",
+    )
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except Exception:
+        raise credentials_exception
+
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise credentials_exception
+    return user
+
+
 async def require_admin(
     current_user: User = Depends(get_current_user),
 ) -> User:

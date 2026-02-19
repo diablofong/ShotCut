@@ -5,7 +5,8 @@ import subprocess
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-THUMBNAIL_DIR = os.getenv("THUMBNAIL_DIR", "./thumbnails")
+from backend.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +18,7 @@ def generate_thumbnail(
     """從影片的指定時間點擷取一幀作為縮圖，回傳是否成功"""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     try:
-        result = subprocess.run(
+        subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-ss", str(timestamp),
@@ -44,15 +45,18 @@ def generate_thumbnail(
 
 
 def get_video_thumbnail_path(video_id: int) -> str:
-    return os.path.join(THUMBNAIL_DIR, "videos", f"{video_id}.jpg")
+    thumbnail_dir = get_settings().thumbnail_dir
+    return os.path.join(thumbnail_dir, "videos", f"{video_id}.jpg")
 
 
 def get_clip_thumbnail_path(clip_id: int) -> str:
-    return os.path.join(THUMBNAIL_DIR, "clips", f"{clip_id}.jpg")
+    thumbnail_dir = get_settings().thumbnail_dir
+    return os.path.join(thumbnail_dir, "clips", f"{clip_id}.jpg")
 
 
 def get_highlight_thumbnail_path(highlight_id: int) -> str:
-    return os.path.join(THUMBNAIL_DIR, "highlights", f"{highlight_id}.jpg")
+    thumbnail_dir = get_settings().thumbnail_dir
+    return os.path.join(thumbnail_dir, "highlights", f"{highlight_id}.jpg")
 
 
 def _needs_thumbnail(thumbnail_path: str | None) -> bool:
@@ -62,7 +66,6 @@ def _needs_thumbnail(thumbnail_path: str | None) -> bool:
 
 async def regenerate_missing_thumbnails(db: AsyncSession) -> None:
     """補生成所有缺少縮圖的影片/片段/精華（包含路徑存在但檔案遺失的情況）"""
-    from sqlalchemy import or_
     from backend.models.video import Video
     from backend.models.clip import Clip
     from backend.models.highlight import Highlight

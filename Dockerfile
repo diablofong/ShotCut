@@ -12,7 +12,6 @@ FROM python:3.11-slim
 # 安裝系統依賴：FFmpeg + 音訊處理所需函式庫 + Node.js（yt-dlp YouTube 解析需要 JS runtime）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    libsndfile1 \
     curl \
     nodejs \
     && rm -rf /var/lib/apt/lists/*

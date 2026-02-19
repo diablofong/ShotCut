@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { videoApi } from '../services/api';
+import { videoApi, createProgressWebSocket } from '../services/api';
 import Navbar from '../components/Navbar';
 import DataTable, { type Column } from '../components/DataTable';
 import SearchInput from '../components/SearchInput';
@@ -78,6 +78,10 @@ export default function VideosPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // WebSocket 連線追蹤（video_id → WebSocket）
+  const wsConnections = useRef<Map<number, WebSocket>>(new Map());
+  // fallback polling（WebSocket 失敗時）
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -103,25 +107,82 @@ export default function VideosPage() {
     fetchVideos();
   }, [fetchVideos]);
 
-  const hasInProgress = videos.some((v) => v.status === 'pending' || v.status === 'downloading');
+  // 管理 WebSocket 連線
+  const inProgressVideos = videos.filter((v) => v.status === 'pending' || v.status === 'downloading');
 
   useEffect(() => {
-    if (!hasInProgress) return;
+    if (inProgressVideos.length === 0) {
+      // 清除所有連線
+      wsConnections.current.forEach((ws) => ws.close());
+      wsConnections.current.clear();
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
 
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await videoApi.list();
-        setVideos(res.data);
-      } catch { /* polling 失敗時靜默忽略 */ }
-    }, 2000);
+    let wsSuccessCount = 0;
+
+    // 為每個下載中的影片建立 WebSocket 連線
+    for (const video of inProgressVideos) {
+      if (wsConnections.current.has(video.id)) continue;
+
+      const ws = createProgressWebSocket(
+        video.id,
+        (data) => {
+          setVideos((prev) =>
+            prev.map((v) => {
+              if (v.id !== video.id) return v;
+              return {
+                ...v,
+                status: (data.status as string) ?? v.status,
+                download_progress: data.progress != null ? (data.progress as number) : v.download_progress,
+                download_speed: data.speed != null ? parseFloat(data.speed as string) || null : v.download_speed,
+                download_eta: data.eta != null ? (data.eta as number) : v.download_eta,
+              };
+            }),
+          );
+          // 完成或失敗時重新 fetch 列表
+          if (data.status === 'completed' || data.status === 'failed') {
+            wsConnections.current.get(video.id)?.close();
+            wsConnections.current.delete(video.id);
+            fetchVideos();
+          }
+        },
+        () => {
+          // WebSocket 關閉，從追蹤中移除
+          wsConnections.current.delete(video.id);
+        },
+      );
+
+      if (ws) {
+        wsConnections.current.set(video.id, ws);
+        wsSuccessCount++;
+      }
+    }
+
+    // 若所有 WebSocket 均失敗，降級為每 3 秒 polling
+    if (wsSuccessCount === 0 && !pollingRef.current) {
+      pollingRef.current = setInterval(async () => {
+        try {
+          const res = await videoApi.list();
+          setVideos(res.data);
+        } catch { /* polling 失敗時靜默忽略 */ }
+      }, 3000);
+    }
 
     return () => {
+      // 清理（組件卸載時）
+      wsConnections.current.forEach((ws) => ws.close());
+      wsConnections.current.clear();
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
     };
-  }, [hasInProgress]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inProgressVideos.length]);
 
   const handleDownload = async () => {
     if (!youtubeUrl.trim()) return;
