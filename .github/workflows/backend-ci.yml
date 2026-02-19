@@ -28,7 +28,7 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: sqlite+aiosqlite:///:memory:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
           SECRET_KEY: ci-test-secret-key
           CORS_ORIGINS: ""
         run: |
