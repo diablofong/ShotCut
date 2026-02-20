@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     admin_username: str = ""
     admin_password: str = ""
 
+    # 生產環境標誌
+    is_production: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
