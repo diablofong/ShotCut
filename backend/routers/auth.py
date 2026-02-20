@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import get_settings
 from backend.db.database import get_db
 from backend.auth.security import (
     verify_password,
@@ -75,13 +76,14 @@ async def login(
     access_token = create_access_token(user.id, user.role)
     refresh_token = await create_refresh_token(db, user.id)
 
+    settings = get_settings()
     response.set_cookie(
         key=_REFRESH_COOKIE,
         value=refresh_token,
         httponly=True,
         samesite="lax",
         max_age=_REFRESH_MAX_AGE,
-        secure=False,  # 生產環境應設為 True（HTTPS）
+        secure=settings.is_production,
     )
 
     return TokenOut(
