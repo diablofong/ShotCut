@@ -67,6 +67,7 @@ export default function HighlightsPage() {
 
   const [playingHighlight, setPlayingHighlight] = useState<Highlight | null>(null);
   const playerRef = useRef<VideoPlayerHandle>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const [showForm, setShowForm] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
@@ -171,6 +172,39 @@ export default function HighlightsPage() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`確定要刪除所選的 ${selectedIds.size} 部精華剪輯嗎？此操作無法復原。`)) return;
+    try {
+      await highlightApi.batchDelete(Array.from(selectedIds));
+      setHighlights((prev) => prev.filter((hl) => !selectedIds.has(hl.id)));
+      if (playingHighlight && selectedIds.has(playingHighlight.id)) setPlayingHighlight(null);
+      setSelectedIds(new Set());
+    } catch {
+      setError('批量刪除失敗');
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredHighlights.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredHighlights.map((hl) => hl.id)));
+    }
+  };
+
   const handleCopyLink = (highlightId: number) => {
     const share = shares[highlightId];
     if (!share) return;
@@ -195,12 +229,27 @@ export default function HighlightsPage() {
 
   const columns: Column<Highlight>[] = [
     {
+      key: 'select',
+      header: '',
+      width: 'w-12',
+      render: (hl) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(hl.id)}
+            onChange={() => toggleSelect(hl.id)}
+            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+        </div>
+      ),
+    },
+    {
       key: 'thumbnail',
       header: '縮圖',
       width: 'w-20',
       render: (hl) => (
         <img
-          src={`/api/highlights/${hl.id}/thumbnail?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+          src={`/api/highlights/${hl.id}/thumbnail`}
           alt=""
           className="w-16 h-9 object-cover rounded bg-gray-200"
           onError={(e) => {
@@ -284,7 +333,7 @@ export default function HighlightsPage() {
               播放
             </button>
             <a
-              href={`/api/highlights/${hl.id}/download?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+              href={`/api/highlights/${hl.id}/download`}
               className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100"
             >
               下載
@@ -449,7 +498,7 @@ export default function HighlightsPage() {
             <div className="max-w-3xl mx-auto">
               <VideoPlayer
                 ref={playerRef}
-                src={`/api/highlights/${playingHighlight.id}/stream?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                src={`/api/highlights/${playingHighlight.id}/stream`}
               />
             </div>
           </div>
@@ -465,6 +514,34 @@ export default function HighlightsPage() {
             />
           </div>
         </div>
+
+        {/* 批量操作列 */}
+        {filteredHighlights.length > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-800">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === filteredHighlights.length && filteredHighlights.length > 0}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              全選
+            </label>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-sm text-gray-500">
+                  已選 {selectedIds.size} 筆
+                </span>
+                <button
+                  onClick={handleBatchDelete}
+                  className="text-sm text-red-600 hover:text-red-800 font-medium px-3 py-1.5 rounded hover:bg-red-50"
+                >
+                  刪除所選
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* 精華表格 */}
         <DataTable

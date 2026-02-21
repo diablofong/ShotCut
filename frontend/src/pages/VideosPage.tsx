@@ -76,8 +76,10 @@ export default function VideosPage() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   // WebSocket 連線追蹤（video_id → WebSocket）
   const wsConnections = useRef<Map<number, WebSocket>>(new Map());
@@ -204,14 +206,43 @@ export default function VideosPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadProgress(0);
     setError('');
     try {
-      await videoApi.upload(file);
+      const res = await videoApi.upload(file, (percent) => {
+        setUploadProgress(percent);
+      });
+      const uploadedVideoId = res.data.id;
+
+      // 立即刷新列表，影片會馬上出現（可能沒有縮圖）
       await fetchVideos();
+
+      // 建立 WebSocket 連線，監聽縮圖生成完成事件
+      const ws = createProgressWebSocket(
+        uploadedVideoId,
+        (data) => {
+          if (data.event === 'thumbnail_generated') {
+            // 縮圖生成完成，刷新列表
+            fetchVideos();
+            // 關閉連線
+            ws?.close();
+            wsConnections.current.delete(uploadedVideoId);
+          }
+        },
+        () => {
+          // WebSocket 關閉時清理
+          wsConnections.current.delete(uploadedVideoId);
+        },
+      );
+
+      if (ws) {
+        wsConnections.current.set(uploadedVideoId, ws);
+      }
     } catch {
       setError('上傳失敗');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -244,14 +275,61 @@ export default function VideosPage() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`確定要刪除所選的 ${selectedIds.size} 部影片嗎？`)) return;
+    try {
+      await videoApi.batchDelete(Array.from(selectedIds));
+      setVideos((prev) => prev.filter((v) => !selectedIds.has(v.id)));
+      setSelectedIds(new Set());
+    } catch {
+      setError('批量刪除失敗');
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredVideos.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredVideos.map((v) => v.id)));
+    }
+  };
+
   const columns: Column<Video>[] = [
+    {
+      key: 'select',
+      header: '',
+      width: 'w-12',
+      render: (v) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(v.id)}
+            onChange={() => toggleSelect(v.id)}
+            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+        </div>
+      ),
+    },
     {
       key: 'thumbnail',
       header: '縮圖',
       width: 'w-20',
       render: (v) => (
         <img
-          src={`/api/videos/${v.id}/thumbnail?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+          src={`/api/videos/${v.id}/thumbnail`}
           alt=""
           className="w-16 h-9 object-cover rounded bg-gray-200"
           onError={(e) => {
@@ -431,9 +509,19 @@ export default function VideosPage() {
               disabled={uploading}
               className="rounded-lg border border-gray-300 bg-white px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
-              {uploading ? '上傳中...' : '選擇檔案上傳'}
+              {uploading ? `上傳中 ${uploadProgress}%` : '選擇檔案上傳'}
             </button>
-            <span className="text-xs text-gray-400">支援 MP4、MOV 等影片格式</span>
+            {uploading && (
+              <div className="w-full max-w-xs">
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {!uploading && <span className="text-xs text-gray-400">支援 MP4、MOV 等影片格式</span>}
           </div>
         </div>
 
@@ -450,6 +538,34 @@ export default function VideosPage() {
             共 {filteredVideos.length} 部影片
           </span>
         </div>
+
+        {/* 批量操作列 */}
+        {filteredVideos.length > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-800">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === filteredVideos.length && filteredVideos.length > 0}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              全選
+            </label>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-sm text-gray-500">
+                  已選 {selectedIds.size} 筆
+                </span>
+                <button
+                  onClick={handleBatchDelete}
+                  className="text-sm text-red-600 hover:text-red-800 font-medium px-3 py-1.5 rounded hover:bg-red-50"
+                >
+                  刪除所選
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* 影片表格 */}
         <DataTable

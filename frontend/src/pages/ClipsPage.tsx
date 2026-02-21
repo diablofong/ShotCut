@@ -67,6 +67,7 @@ export default function ClipsPage() {
   const [previewClip, setPreviewClip] = useState<Clip | null>(null);
   const previewPlayerRef = useRef<VideoPlayerHandle>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const fetchClips = useCallback(async () => {
     setLoading(true);
@@ -111,6 +112,39 @@ export default function ClipsPage() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`確定要刪除所選的 ${selectedIds.size} 個片段嗎？`)) return;
+    try {
+      await clipApi.batchDelete(Array.from(selectedIds));
+      setClips((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      if (previewClip && selectedIds.has(previewClip.id)) setPreviewClip(null);
+      setSelectedIds(new Set());
+    } catch {
+      setError('批量刪除失敗');
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredClips.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredClips.map((c) => c.id)));
+    }
+  };
+
   const handleSelectClip = useCallback((clip: Clip) => {
     setPreviewClip(clip);
     setTimeout(() => {
@@ -124,12 +158,27 @@ export default function ClipsPage() {
 
   const columns: Column<Clip>[] = [
     {
+      key: 'select',
+      header: '',
+      width: 'w-12',
+      render: (c) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(c.id)}
+            onChange={() => toggleSelect(c.id)}
+            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+        </div>
+      ),
+    },
+    {
       key: 'thumbnail',
       header: '縮圖',
       width: 'w-20',
       render: (c) => (
         <img
-          src={`/api/clips/${c.id}/thumbnail?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+          src={`/api/clips/${c.id}/thumbnail`}
           alt=""
           className="w-16 h-9 object-cover rounded bg-gray-200"
           onError={(e) => {
@@ -213,7 +262,7 @@ export default function ClipsPage() {
             播放
           </button>
           <a
-            href={`/api/clips/${c.id}/download?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+            href={`/api/clips/${c.id}/download`}
             className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100"
           >
             下載
@@ -260,7 +309,7 @@ export default function ClipsPage() {
             <div className="max-w-2xl mx-auto">
               <VideoPlayer
                 ref={previewPlayerRef}
-                src={`/api/clips/${previewClip.id}/stream?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                src={`/api/clips/${previewClip.id}/stream`}
                 autoplay
               />
             </div>
@@ -306,6 +355,34 @@ export default function ClipsPage() {
             共 {filteredClips.length} 個片段
           </span>
         </div>
+
+        {/* 批量操作列 */}
+        {filteredClips.length > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-gray-800">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === filteredClips.length && filteredClips.length > 0}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              全選
+            </label>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-sm text-gray-500">
+                  已選 {selectedIds.size} 筆
+                </span>
+                <button
+                  onClick={handleBatchDelete}
+                  className="text-sm text-red-600 hover:text-red-800 font-medium px-3 py-1.5 rounded hover:bg-red-50"
+                >
+                  刪除所選
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* 片段表格 */}
         <DataTable

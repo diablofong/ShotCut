@@ -182,22 +182,40 @@ export default function VideoDetailPage() {
     }
 
     try {
-      await markApi.create(videoId, {
+      const categoryValue = recording.category;  // 先保存，因為下面會清空 recording
+
+      const response = await markApi.create(videoId, {
         start_time: actualStart,
         end_time: actualEnd,
-        category: recording.category,
+        category: categoryValue,
         label,
         player_numbers: [],
       });
       await fetchMarks();
+      setRecording(null);
+
+      // 暫停影片，避免用戶輸入時影片還在播放
+      if (playerRef.current) {
+        playerRef.current.pause();
+      }
+
+      // 自動開啟編輯對話框
+      const newMark = response.data;
+      setEditingMarkId(newMark.id);
+      setEditStartTime(newMark.start_time);
+      setEditEndTime(newMark.end_time);
+      setEditCategory(newMark.category);
+      setEditLabel(newMark.label);
+      setEditPlayers('');  // 空白，讓用戶輸入
+
       showToast(
-        `${cat?.label || label} 標記完成 (${formatTime(actualStart)} ~ ${formatTime(actualEnd)})`,
-        recording.category,
+        `${cat?.label || label} 標記完成，請輸入球員資訊`,
+        categoryValue,
       );
     } catch {
       showToast('標記建立失敗', 'error');
+      setRecording(null);
     }
-    setRecording(null);
   }, [recording, currentTime, videoId, fetchMarks, showToast]);
 
   /** 取消錄製 */
@@ -350,8 +368,7 @@ export default function VideoDetailPage() {
     );
   }
 
-  const token = localStorage.getItem('token') || '';
-  const videoSrc = `/api/videos/${videoId}/stream?token=${encodeURIComponent(token)}`;
+  const videoSrc = `/api/videos/${videoId}/stream`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -359,10 +376,7 @@ export default function VideoDetailPage() {
 
       {/* 影片操作列 */}
       <div className="bg-white border-b">
-        <div className="mx-auto max-w-screen-2xl px-4 py-2 flex items-center justify-between">
-          <h1 className="text-base font-semibold text-gray-800 truncate max-w-md">
-            {video.title}
-          </h1>
+        <div className="mx-auto max-w-screen-2xl px-4 py-2 flex items-center justify-end">
           <button
             onClick={handleExtractClips}
             disabled={extracting || marks.length === 0}
