@@ -6,7 +6,7 @@
 
 ## 畫面預覽
 
-[![ShotCut Demo](https://img.youtube.com/vi/4Bdpn3-4Xuk/maxresdefault.jpg)](https://youtu.be/4Bdpn3-4Xuk)
+https://github.com/user-attachments/assets/502e3c03-63f0-424e-b465-a653ea7e39c4
 
 ## 功能特色
 

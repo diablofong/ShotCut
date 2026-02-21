@@ -6,7 +6,7 @@ A basketball game video tagging and clip extraction tool. Upload match footage, 
 
 ## Demo
 
-[![ShotCut Demo](https://img.youtube.com/vi/V5Isk_bl6Ng/maxresdefault.jpg)](https://youtu.be/V5Isk_bl6Ng)
+https://github.com/user-attachments/assets/966b4601-9764-4413-a87a-232568f64f7c
 
 ## Features
 
