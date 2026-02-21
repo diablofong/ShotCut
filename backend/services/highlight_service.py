@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import shlex
 import subprocess
 import tempfile
 
@@ -80,13 +81,17 @@ async def generate_highlight(
     await db.commit()
 
     # FFmpeg concat
+    from backend.utils.streaming import validate_file_path
     os.makedirs(settings.highlight_dir, exist_ok=True)
     output_path = os.path.join(settings.highlight_dir, f"{highlight.id}.mp4")
 
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             for clip in clips:
-                f.write(f"file '{clip.file_path}'\n")
+                # 驗證每個片段路徑
+                validate_file_path(clip.file_path, settings.clip_dir)
+                # 使用 shlex.quote() 轉義路徑
+                f.write(f"file {shlex.quote(clip.file_path)}\n")
             concat_file = f.name
 
         subprocess.run(
@@ -149,9 +154,40 @@ async def delete_highlight(db: AsyncSession, highlight_id: int) -> None:
 
     if highlight.file_path and os.path.exists(highlight.file_path):
         os.remove(highlight.file_path)
+    if highlight.thumbnail_path and os.path.exists(highlight.thumbnail_path):
+        os.remove(highlight.thumbnail_path)
 
     await db.delete(highlight)
     await db.commit()
+
+
+async def batch_delete_highlights(db: AsyncSession, highlight_ids: list[int]) -> dict[str, int]:
+    """批量刪除精華剪輯，回傳成功與失敗數量"""
+    from sqlalchemy.orm import selectinload
+    success = 0
+    failed = 0
+
+    for highlight_id in highlight_ids:
+        stmt = select(Highlight).where(Highlight.id == highlight_id).options(
+            selectinload(Highlight.clips),
+            selectinload(Highlight.share_links),
+        )
+        result = await db.execute(stmt)
+        highlight = result.scalar_one_or_none()
+        if not highlight:
+            failed += 1
+            continue
+
+        if highlight.file_path and os.path.exists(highlight.file_path):
+            os.remove(highlight.file_path)
+        if highlight.thumbnail_path and os.path.exists(highlight.thumbnail_path):
+            os.remove(highlight.thumbnail_path)
+
+        await db.delete(highlight)
+        success += 1
+
+    await db.commit()
+    return {"success": success, "failed": failed}
 
 
 async def list_highlights(

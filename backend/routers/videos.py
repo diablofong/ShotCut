@@ -26,6 +26,10 @@ class VideoUpdateRequest(BaseModel):
     title: str
 
 
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]
+
+
 class VideoOut(BaseModel):
     id: int
     title: str
@@ -170,6 +174,25 @@ async def delete_video(
     return {"detail": "已刪除"}
 
 
+@router.post("/videos/batch/delete")
+async def batch_delete_videos(
+    req: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量刪除影片"""
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="未指定任何 ID")
+
+    # 驗證權限：一般使用者只能刪除自己的影片
+    if current_user.role != "admin":
+        for video_id in req.ids:
+            await verify_video_owner(video_id, db, current_user)
+
+    result = await video_service.batch_delete_videos(db, req.ids)
+    return {"detail": f"成功刪除 {result['success']} 筆，失敗 {result['failed']} 筆", **result}
+
+
 @router.get("/videos/{video_id}/stream")
 async def stream_video(
     video_id: int,
@@ -222,11 +245,13 @@ async def video_thumbnail(
 async def websocket_progress(
     websocket: WebSocket,
     video_id: int,
-    token: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """WebSocket 即時推送影片下載進度"""
+    """WebSocket 即時推送影片下載進度（使用 Cookie 認證）"""
     from backend.auth.dependencies import get_current_user_from_token
+
+    # 從 Cookie 讀取 token
+    token = websocket.cookies.get("access_token")
     if not token:
         await websocket.close(code=4001)
         return

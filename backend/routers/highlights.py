@@ -25,6 +25,10 @@ class GenerateRequest(BaseModel):
     title: str | None = None
 
 
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]
+
+
 class HighlightOut(BaseModel):
     id: int
     title: str
@@ -162,6 +166,26 @@ async def delete_highlight(
         raise HTTPException(status_code=403, detail="無權刪除此精華剪輯")
     await highlight_service.delete_highlight(db, highlight_id)
     return {"detail": "已刪除"}
+
+
+@router.post("/highlights/batch/delete")
+async def batch_delete_highlights(
+    req: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量刪除精華剪輯"""
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="未指定任何 ID")
+
+    # 驗證權限：一般使用者只能刪除自己的精華剪輯
+    for highlight_id in req.ids:
+        highlight = await db.get(Highlight, highlight_id)
+        if highlight and current_user.role != "admin" and highlight.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="無權刪除部分精華剪輯")
+
+    result = await highlight_service.batch_delete_highlights(db, req.ids)
+    return {"detail": f"成功刪除 {result['success']} 筆，失敗 {result['failed']} 筆", **result}
 
 
 @router.get("/highlights", response_model=list[HighlightOut])

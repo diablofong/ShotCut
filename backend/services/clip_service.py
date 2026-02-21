@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
     """從影片切割單一標記對應的片段"""
     settings = get_settings()
+    from backend.utils.streaming import validate_file_path
+
+    # 驗證輸入檔案路徑
+    validate_file_path(video.file_path, settings.upload_dir)
+
     clip = Clip(
         video_id=video.id,
         mark_id=mark.id,
@@ -29,6 +34,9 @@ async def extract_clip(db: AsyncSession, mark: Mark, video: Video) -> Clip:
     output_dir = os.path.join(settings.clip_dir, str(video.id))
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{mark.id}.mp4")
+
+    # 驗證輸出路徑在 CLIP_DIR 內
+    validate_file_path(output_path, settings.clip_dir)
 
     try:
         duration = mark.end_time - mark.start_time
@@ -120,6 +128,31 @@ async def delete_clip(db: AsyncSession, clip_id: int) -> bool:
         return False
     if clip.file_path and os.path.exists(clip.file_path):
         os.remove(clip.file_path)
+    if clip.thumbnail_path and os.path.exists(clip.thumbnail_path):
+        os.remove(clip.thumbnail_path)
     await db.delete(clip)
     await db.commit()
     return True
+
+
+async def batch_delete_clips(db: AsyncSession, clip_ids: list[int]) -> dict[str, int]:
+    """批量刪除片段，回傳成功與失敗數量"""
+    success = 0
+    failed = 0
+
+    for clip_id in clip_ids:
+        clip = await db.get(Clip, clip_id)
+        if not clip:
+            failed += 1
+            continue
+
+        if clip.file_path and os.path.exists(clip.file_path):
+            os.remove(clip.file_path)
+        if clip.thumbnail_path and os.path.exists(clip.thumbnail_path):
+            os.remove(clip.thumbnail_path)
+
+        await db.delete(clip)
+        success += 1
+
+    await db.commit()
+    return {"success": success, "failed": failed}

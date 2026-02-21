@@ -6,14 +6,7 @@
 
 ## 畫面預覽
 
-> **Demo 截圖即將加入。** 請將截圖放置於 `docs/screenshots/` 目錄並更新此區塊。
-
-<!-- 建議截圖頁面：
-- 影片列表頁（含縮圖與下載進度）
-- 影片播放器（含標記時間軸）
-- 精華剪輯產生對話框
-- 分享連結頁（公開瀏覽畫面）
--->
+[![ShotCut Demo](https://img.youtube.com/vi/4Bdpn3-4Xuk/maxresdefault.jpg)](https://youtu.be/4Bdpn3-4Xuk)
 
 ## 功能特色
 
@@ -89,6 +82,58 @@ npm run dev
 
 前端開發伺服器：`http://localhost:5173`　後端 API：`http://localhost:8000`
 
+## 安全最佳實踐
+
+ShotCut 實作多層安全機制保護您的資料：
+
+### 生產環境部署檢查清單
+
+部署到生產環境前，請確認：
+
+1. **環境變數設定**
+   - 產生強密鑰 `SECRET_KEY`（≥32 字符）：`python -c "import secrets; print(secrets.token_urlsafe(32))"`
+   - 使用強密碼（≥16 字符含大小寫數字特殊符號）作為資料庫憑證
+   - 修改 `ADMIN_PASSWORD` 預設值
+   - `IS_PRODUCTION=true` 強制啟用 Cookie Secure Flag，僅在直接終止 HTTPS（不經反向代理）時才需設定
+
+2. **HTTPS 與 CORS**
+   - 透過反向代理（nginx/Caddy）部署並配置有效的 SSL/TLS 憑證
+   - **Cookie Secure Flag 自動偵測**：反向代理設定 `X-Forwarded-Proto: https` 時自動啟用，無需手動設定 `IS_PRODUCTION=true`
+   - 設定 `CORS_ORIGINS` 僅包含生產網域（如 `https://shotcut.example.com`）
+
+3. **容器安全**
+   - 應用程式在 Docker 容器內以非 root 用戶（`shotcut`）執行
+   - 資料庫埠（3306）未對外暴露，僅可透過 Docker 內部網路存取
+   - 敏感檔案（`.env`、`.git`、`data/`）透過 `.dockerignore` 排除在 Docker 映像外
+
+4. **Token 安全**
+   - Access Token 儲存於記憶體（非 localStorage），關閉頁面自動清除
+   - Refresh Token 儲存於 httpOnly Cookie，免疫 XSS 攻擊
+   - URL 查詢參數不含 Token，防止在日誌與瀏覽器歷史記錄中洩漏
+
+5. **檔案上傳安全**
+   - 魔術數字驗證防止偽造副檔名（如 `.exe` 改名為 `.mp4`）
+   - 檔名清理移除路徑遍歷字符（`../`、`..\\`）
+   - FFmpeg 命令注入防護：路徑驗證與 shell 轉義
+
+6. **CI/CD 安全掃描**
+   - 自動化依賴審計：`pip-audit`（Python）與 `npm audit`（Node.js）
+   - 靜態分析：Bandit（Python SAST）
+   - 秘密掃描：TruffleHog
+
+### 安全監控
+
+部署後：
+- 監控應用程式日誌中的認證失敗與可疑活動
+- 定期更新依賴套件：`docker compose build --pull`
+- 訂閱 FastAPI、React、MariaDB 的安全公告
+
+### 從舊版本升級
+
+**破壞性變更：** 如果您從安全修復前的版本（commit `e371ae7` 之前）升級：
+- 所有使用者必須重新登入（Token 儲存機制變更：localStorage → 記憶體）
+- Refresh Token 現為 httpOnly Cookie，請更新任何自訂 API 客戶端
+
 ## 執行測試
 
 測試使用 SQLite in-memory，不需要額外的 MariaDB 實例：
@@ -110,7 +155,8 @@ docker run --rm \
 | 變數名稱 | 必填 | 預設值 | 說明 |
 |---------|------|--------|------|
 | `DATABASE_URL` | ✅ | — | MariaDB 連線字串 |
-| `SECRET_KEY` | ✅ | — | JWT 簽署密鑰（隨機長字串） |
+| `SECRET_KEY` | ✅ | — | JWT 簽署密鑰（≥32 字符，使用 `.env.example` 中的生成器） |
+| `IS_PRODUCTION` | | `false` | 強制啟用 Cookie Secure Flag；反向代理設定 `X-Forwarded-Proto: https` 時自動啟用 |
 | `ADMIN_USERNAME` | | `admin` | 初始管理員帳號 |
 | `ADMIN_PASSWORD` | | `admin1234` | 初始管理員密碼（**務必修改**） |
 | `JWT_ACCESS_EXPIRE_MINUTES` | | `15` | Access Token 有效期（分鐘） |

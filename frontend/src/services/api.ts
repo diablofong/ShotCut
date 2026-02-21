@@ -5,9 +5,20 @@ const api = axios.create({
   withCredentials: true, // 允許攜帶 Cookie（refresh_token）
 });
 
+// Token 儲存在內存中，由 AuthContext 管理
+let accessToken: string | null = null;
+
+export function setAccessToken(token: string | null) {
+  accessToken = token;
+}
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
 // 請求攔截器：附加 JWT access token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -25,7 +36,7 @@ function onRefreshSuccess(newToken: string) {
 
 function onRefreshFailed() {
   pendingRequests = [];
-  localStorage.removeItem('token');
+  setAccessToken(null);
   window.location.href = '/login';
 }
 
@@ -61,7 +72,7 @@ api.interceptors.response.use(
     try {
       const { data } = await axios.post('/api/auth/refresh', {}, { withCredentials: true });
       const newToken: string = data.access_token;
-      localStorage.setItem('token', newToken);
+      setAccessToken(newToken);
       api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
       onRefreshSuccess(newToken);
       originalRequest.headers.Authorization = `Bearer ${newToken}`;
@@ -103,13 +114,21 @@ export const videoApi = {
   list: () => api.get('/videos'),
   get: (id: number) => api.get(`/videos/${id}`),
   download: (url: string) => api.post('/videos/download', { url }),
-  upload: (file: File) => {
+  upload: (file: File, onProgress?: (percent: number) => void) => {
     const form = new FormData();
     form.append('file', file);
-    return api.post('/videos/upload', form);
+    return api.post('/videos/upload', form, {
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
   },
   update: (id: number, data: { title: string }) => api.put(`/videos/${id}`, data),
   delete: (id: number) => api.delete(`/videos/${id}`),
+  batchDelete: (ids: number[]) => api.post('/videos/batch/delete', { ids }),
   status: (id: number) => api.get(`/videos/${id}/status`),
 };
 
@@ -127,6 +146,7 @@ export const clipApi = {
   list: (params?: Record<string, unknown>) => api.get('/clips', { params }),
   extract: (videoId: number) => api.post(`/videos/${videoId}/clips`),
   delete: (id: number) => api.delete(`/clips/${id}`),
+  batchDelete: (ids: number[]) => api.post('/clips/batch/delete', { ids }),
 };
 
 // 精華剪輯
@@ -134,6 +154,7 @@ export const highlightApi = {
   list: () => api.get('/highlights'),
   generate: (data: Record<string, unknown>) => api.post('/highlights/generate', data),
   delete: (id: number) => api.delete(`/highlights/${id}`),
+  batchDelete: (ids: number[]) => api.post('/highlights/batch/delete', { ids }),
 };
 
 // 分享
@@ -153,9 +174,9 @@ export function createProgressWebSocket(
   onMessage: (data: Record<string, unknown>) => void,
   onClose?: () => void,
 ): WebSocket | null {
-  const token = localStorage.getItem('token') ?? '';
+  // WebSocket 現在使用 Cookie 認證，不需要傳遞 token
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/api/videos/${videoId}/ws/progress?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${protocol}//${window.location.host}/api/videos/${videoId}/ws/progress`;
   try {
     const ws = new WebSocket(wsUrl);
     ws.onmessage = (event) => {

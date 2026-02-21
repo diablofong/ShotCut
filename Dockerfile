@@ -9,11 +9,12 @@ RUN npm run build
 # ---- 後端運行階段 ----
 FROM python:3.11-slim
 
-# 安裝系統依賴：FFmpeg + 音訊處理所需函式庫 + Node.js（yt-dlp YouTube 解析需要 JS runtime）
+# 安裝系統依賴：FFmpeg + 音訊處理所需函式庫 + Node.js（yt-dlp YouTube 解析需要 JS runtime）+ 中文字型
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     nodejs \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 安裝 yt-dlp
@@ -39,6 +40,12 @@ RUN mkdir -p /app/uploads /app/clips /app/highlights /app/thumbnails
 
 # 修正 Windows CRLF 換行符並設定執行權限
 RUN sed -i 's/\r$//' ./entrypoint.sh && chmod +x ./entrypoint.sh
+
+# 創建非 root 用戶並設定目錄所有權
+RUN groupadd -r shotcut && useradd -r -g shotcut shotcut \
+    && chown -R shotcut:shotcut /app /app/uploads /app/clips /app/highlights /app/thumbnails
+
+USER shotcut
 
 EXPOSE 8000
 

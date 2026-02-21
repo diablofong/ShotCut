@@ -31,3 +31,15 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
         working-directory: frontend
+
+      - name: Security - Dependency audit
+        run: npm audit --audit-level=high
+        working-directory: frontend
+
+      - name: Security - Secret scanning
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified

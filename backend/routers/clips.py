@@ -25,6 +25,10 @@ CATEGORY_LABELS = {
 }
 
 
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]
+
+
 class ClipOut(BaseModel):
     id: int
     video_id: int
@@ -180,3 +184,23 @@ async def delete_clip(
     if not deleted:
         raise HTTPException(status_code=404, detail="片段不存在")
     return {"detail": "已刪除"}
+
+
+@router.post("/clips/batch/delete")
+async def batch_delete_clips(
+    req: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量刪除片段"""
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="未指定任何 ID")
+
+    # 驗證權限：檢查每個片段所屬影片的擁有者
+    for clip_id in req.ids:
+        clip = await db.get(Clip, clip_id)
+        if clip:
+            await verify_video_owner(clip.video_id, db, current_user)
+
+    result = await clip_service.batch_delete_clips(db, req.ids)
+    return {"detail": f"成功刪除 {result['success']} 筆，失敗 {result['failed']} 筆", **result}

@@ -29,8 +29,26 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-          SECRET_KEY: ci-test-secret-key
+          SECRET_KEY: ci-test-secret-key-must-be-at-least-32-characters-long
           CORS_ORIGINS: ""
         run: |
           cd backend
           python -m pytest tests/ -v --tb=short
+
+      - name: Security - Dependency audit
+        run: |
+          pip install pip-audit
+          pip-audit --requirement backend/requirements.txt
+
+      - name: Security - SAST with Bandit
+        run: |
+          pip install bandit
+          bandit -r backend/ -ll
+
+      - name: Security - Secret scanning
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified

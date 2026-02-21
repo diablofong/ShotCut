@@ -77,13 +77,14 @@ async def login(
     refresh_token = await create_refresh_token(db, user.id)
 
     settings = get_settings()
+    is_secure = settings.is_production or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         key=_REFRESH_COOKIE,
         value=refresh_token,
         httponly=True,
         samesite="lax",
         max_age=_REFRESH_MAX_AGE,
-        secure=settings.is_production,
+        secure=is_secure,
     )
 
     return TokenOut(

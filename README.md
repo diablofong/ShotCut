@@ -4,16 +4,9 @@ A basketball game video tagging and clip extraction tool. Upload match footage, 
 
 > 中文說明請見 [README.zh-TW.md](README.zh-TW.md)
 
-## Screenshots
+## Demo
 
-> **Demo screenshots coming soon.** To add screenshots, place images in `docs/screenshots/` and update this section.
-
-<!-- Suggested screenshots:
-- Video list page with thumbnails and download progress
-- Video player with mark timeline
-- Highlight generation dialog
-- Share link page (public view)
--->
+[![ShotCut Demo](https://img.youtube.com/vi/V5Isk_bl6Ng/maxresdefault.jpg)](https://youtu.be/V5Isk_bl6Ng)
 
 ## Features
 
@@ -88,6 +81,58 @@ npm run dev
 
 Frontend dev server: `http://localhost:5173` — Backend API: `http://localhost:8000`
 
+## Security Best Practices
+
+ShotCut implements multiple security layers to protect your data:
+
+### Production Deployment Checklist
+
+Before deploying to production, ensure:
+
+1. **Environment Configuration**
+   - Generate a strong `SECRET_KEY` (≥32 characters): `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+   - Use strong passwords (≥16 characters with mixed case, numbers, and symbols) for database credentials
+   - Update `ADMIN_PASSWORD` from the default value
+   - `IS_PRODUCTION=true` forces Cookie Secure Flag — only needed when terminating HTTPS directly (without a reverse proxy)
+
+2. **HTTPS & CORS**
+   - Deploy behind a reverse proxy (nginx/Caddy) with valid SSL/TLS certificates
+   - **Cookie Secure Flag is auto-enabled** when the proxy sets `X-Forwarded-Proto: https` — no need to set `IS_PRODUCTION=true` manually
+   - Configure `CORS_ORIGINS` to include only your production domain (e.g., `https://shotcut.example.com`)
+
+3. **Container Security**
+   - Application runs as non-root user (`shotcut`) inside Docker containers
+   - Database port (3306) is not exposed to the host — accessible only via internal Docker network
+   - Sensitive files (`.env`, `.git`, `data/`) are excluded from Docker images via `.dockerignore`
+
+4. **Token Security**
+   - Access Tokens stored in memory (not localStorage) — automatically cleared on page close
+   - Refresh Tokens stored in httpOnly cookies — immune to XSS attacks
+   - No tokens in URL query parameters — prevents leakage in logs and browser history
+
+5. **File Upload Security**
+   - Magic number validation prevents fake file extensions (e.g., `.exe` renamed to `.mp4`)
+   - Filename sanitization removes path traversal characters (`../`, `..\\`)
+   - FFmpeg command injection prevention via path validation and shell escaping
+
+6. **CI/CD Security Scanning**
+   - Automated dependency audits: `pip-audit` (Python) and `npm audit` (Node.js)
+   - Static analysis: Bandit (Python SAST)
+   - Secret scanning: TruffleHog
+
+### Security Monitoring
+
+After deployment:
+- Monitor application logs for authentication failures and suspicious activity
+- Keep dependencies updated: `docker compose build --pull` periodically
+- Subscribe to security advisories for FastAPI, React, and MariaDB
+
+### Upgrading from Earlier Versions
+
+**Breaking Change:** If you're upgrading from a version prior to the security fixes (commit `e371ae7`):
+- All users must re-login due to token storage mechanism changes (localStorage → memory)
+- Refresh Tokens are now httpOnly cookies — update any custom API clients
+
 ## Running Tests
 
 Tests use SQLite in-memory — no MariaDB instance required:
@@ -109,7 +154,8 @@ docker run --rm \
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | ✅ | — | MariaDB connection string |
-| `SECRET_KEY` | ✅ | — | JWT signing key (random string) |
+| `SECRET_KEY` | ✅ | — | JWT signing key (≥32 chars, use generator in `.env.example`) |
+| `IS_PRODUCTION` | | `false` | Force Cookie Secure Flag; auto-enabled when reverse proxy sets `X-Forwarded-Proto: https` |
 | `ADMIN_USERNAME` | | `admin` | Initial admin account |
 | `ADMIN_PASSWORD` | | `admin1234` | Initial admin password **(change this)** |
 | `JWT_ACCESS_EXPIRE_MINUTES` | | `15` | Access token lifetime (minutes) |

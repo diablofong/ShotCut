@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import api from '../services/api';
+import api, { setAccessToken } from '../services/api';
 
 interface AuthUser {
   id: number;
@@ -21,23 +21,28 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
-  // 有 token 才需要驗證，初始 loading 狀態由此決定
-  const [loading, setLoading] = useState(() => !!localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
+  // 初始化時嘗試使用 refresh token 取得 access token
   useEffect(() => {
-    if (token) {
-      api.get('/auth/me')
-        .then((res) => setUser(res.data))
-        .catch(() => {
-          localStorage.removeItem('token');
-          setToken(null);
-          setUser(null);
-        })
-        .finally(() => setLoading(false));
-    }
-    // 無 token：loading 初始即為 false，無需再次呼叫 setLoading
-  }, [token]);
+    api.post('/auth/refresh', {})
+      .then((res) => {
+        const newToken = res.data.access_token;
+        setToken(newToken);
+        setAccessToken(newToken);
+        // 取得使用者資訊
+        return api.get('/auth/me');
+      })
+      .then((res) => setUser(res.data))
+      .catch(() => {
+        // refresh 失敗或無 cookie，視為未登入
+        setToken(null);
+        setAccessToken(null);
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const login = async (username: string, password: string) => {
     const params = new URLSearchParams();
@@ -47,15 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     const { access_token, user: userData } = res.data;
-    localStorage.setItem('token', access_token);
     setToken(access_token);
+    setAccessToken(access_token);
     setUser(userData);
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
     setToken(null);
+    setAccessToken(null);
     setUser(null);
+    // 呼叫後端登出以清除 refresh token cookie
+    api.post('/auth/logout').catch(() => {
+      // 忽略錯誤
+    });
   };
 
   return (

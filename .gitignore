@@ -23,6 +23,7 @@ out/
 *.swp
 *.swo
 *~
+scripts/
 
 # Claude Code
 .claude/

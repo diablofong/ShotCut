@@ -4,6 +4,7 @@ import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 
+import filetype
 import yt_dlp
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -161,13 +162,49 @@ async def _async_download(video_id: int, url: str, db_url: str, main_loop: async
         await engine.dispose()
 
 
+def sanitize_filename(filename: str) -> str:
+    """清理檔案名稱，移除路徑遍歷字符"""
+    # 移除路徑分隔符和特殊字符
+    filename = os.path.basename(filename)
+    # 移除 .. 和其他危險字符
+    filename = filename.replace('..', '').replace('/', '').replace('\\', '')
+    # 如果清理後為空，使用預設名稱
+    if not filename:
+        filename = 'video.mp4'
+    return filename
+
+
 async def create_upload_stream(
     db: AsyncSession, filename: str, file: UploadFile, max_size: int, user_id: int | None = None
 ) -> Video:
+    # 允許的影片 MIME 類型
+    ALLOWED_VIDEO_MIMES = {
+        'video/mp4',
+        'video/quicktime',  # .mov
+        'video/x-msvideo',  # .avi
+        'video/x-matroska',  # .mkv
+    }
+
     allowed_ext = {".mp4", ".avi", ".mov", ".mkv"}
+
+    # 清理檔案名稱
+    filename = sanitize_filename(filename)
     ext = os.path.splitext(filename)[1].lower()
     if ext not in allowed_ext:
         raise ValueError(f"不支援的檔案格式: {ext}")
+
+    # 讀取前 262 bytes 進行魔數檢查
+    first_chunk = await file.read(262)
+    if not first_chunk:
+        raise ValueError("檔案為空")
+
+    kind = filetype.guess(first_chunk)
+    if not kind or kind.mime not in ALLOWED_VIDEO_MIMES:
+        detected_type = kind.mime if kind else 'unknown'
+        raise ValueError(f"檔案類型不符，偵測到: {detected_type}，需要影片檔案")
+
+    # 重置檔案指針以繼續讀取
+    await file.seek(0)
 
     video = Video(title=filename, source_type="upload", status="completed", owner_id=user_id)
     db.add(video)
@@ -197,14 +234,49 @@ async def create_upload_stream(
     video.file_path = file_path
     video.file_size = total_written
 
-    # 產生縮圖
-    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
-    thumb_path = get_video_thumbnail_path(video.id)
-    if generate_thumbnail(file_path, thumb_path):
-        video.thumbnail_path = thumb_path
+    # 讀取影片時長
+    try:
+        import ffmpeg
+        probe = ffmpeg.probe(file_path)
+        video.duration = float(probe['format']['duration'])
+    except Exception:
+        # 如果讀取失敗，設為 None
+        video.duration = None
 
     await db.commit()
     await db.refresh(video)
+
+    # 背景生成縮圖（不阻塞回應）
+    import asyncio
+    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
+
+    async def generate_thumbnail_async():
+        """背景任務：生成縮圖並透過 WebSocket 通知"""
+        thumb_path = get_video_thumbnail_path(video.id)
+        success = generate_thumbnail(file_path, thumb_path)
+
+        if success:
+            # 更新資料庫
+            from backend.database import get_async_engine
+            from sqlalchemy.ext.asyncio import AsyncSession
+            engine = get_async_engine()
+            async with AsyncSession(engine) as session:
+                vid = await session.get(Video, video.id)
+                if vid:
+                    vid.thumbnail_path = thumb_path
+                    await session.commit()
+            await engine.dispose()
+
+        # 透過 WebSocket 推送縮圖生成完成事件
+        from backend.websocket_manager import manager
+        await manager.broadcast(video.id, {
+            "event": "thumbnail_generated",
+            "success": success,
+            "video_id": video.id,
+        })
+
+    asyncio.create_task(generate_thumbnail_async())
+
     return video
 
 
@@ -233,6 +305,41 @@ async def delete_video(db: AsyncSession, video_id: int) -> bool:
     if os.path.isdir(video_dir):
         shutil.rmtree(video_dir, ignore_errors=True)
 
+    # 刪除縮圖
+    from backend.services.thumbnail_service import get_video_thumbnail_path
+    thumbnail_path = get_video_thumbnail_path(video_id)
+    if os.path.exists(thumbnail_path):
+        os.remove(thumbnail_path)
+
     await db.delete(video)
     await db.commit()
     return True
+
+
+async def batch_delete_videos(db: AsyncSession, video_ids: list[int]) -> dict[str, int]:
+    """批量刪除影片，回傳成功與失敗數量"""
+    success = 0
+    failed = 0
+    upload_dir = get_settings().upload_dir
+    from backend.services.thumbnail_service import get_video_thumbnail_path
+
+    for video_id in video_ids:
+        video = await db.get(Video, video_id)
+        if not video:
+            failed += 1
+            continue
+
+        video_dir = os.path.join(upload_dir, str(video_id))
+        if os.path.isdir(video_dir):
+            shutil.rmtree(video_dir, ignore_errors=True)
+
+        # 刪除縮圖
+        thumbnail_path = get_video_thumbnail_path(video_id)
+        if os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
+
+        await db.delete(video)
+        success += 1
+
+    await db.commit()
+    return {"success": success, "failed": failed}

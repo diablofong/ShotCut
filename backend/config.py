@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +36,18 @@ class Settings(BaseSettings):
     is_production: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator('secret_key')
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """驗證 Secret Key 強度"""
+        if len(v) < 32:
+            raise ValueError('SECRET_KEY 長度必須至少 32 字符')
+        # 檢查是否為常見預設值
+        weak_keys = ['change-me', 'test', 'secret', 'password', 'default']
+        if v.lower() in weak_keys:
+            raise ValueError(f'SECRET_KEY 不可使用常見預設值: {", ".join(weak_keys)}')
+        return v
 
     @property
     def cors_origins_list(self) -> list[str]:
