@@ -46,6 +46,36 @@ Open `http://localhost:8000` in your browser.
 
 ---
 
+## Local Development
+
+**Backend:**
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+pip install -r backend/requirements.txt
+
+cp .env.example .env
+# Edit DATABASE_URL to point to your MariaDB instance
+
+alembic upgrade head
+
+uvicorn backend.main:app --reload
+```
+
+**Frontend:**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend dev server: `http://localhost:5173` — Backend API: `http://localhost:8000`
+
+---
+
 ## Production Checklist
 
 !!! warning "Before going live"
@@ -86,6 +116,59 @@ server {
 ```env
 CORS_ORIGINS=https://shotcut.example.com
 ```
+
+### Container Security
+
+- Application runs as non-root user (`shotcut`) inside Docker containers
+- Database port (3306) is not exposed to the host — accessible only via internal Docker network
+- Sensitive files (`.env`, `.git`, `data/`) are excluded from Docker images via `.dockerignore`
+
+### Token Security
+
+- Access Tokens stored in memory (not localStorage) — automatically cleared on page close
+- Refresh Tokens stored in httpOnly cookies — immune to XSS attacks
+- No tokens in URL query parameters — prevents leakage in logs and browser history
+
+### File Upload Security
+
+- Magic number validation prevents fake file extensions (e.g., `.exe` renamed to `.mp4`)
+- Filename sanitization removes path traversal characters (`../`, `..\\`)
+- FFmpeg command injection prevention via path validation and shell escaping
+
+### Security Monitoring
+
+After deployment:
+
+- Monitor application logs for authentication failures and suspicious activity
+- Keep dependencies updated: `docker compose build --pull` periodically
+- Subscribe to security advisories for FastAPI, React, and MariaDB
+
+---
+
+## Running Tests
+
+Tests use SQLite in-memory — no MariaDB instance required:
+
+```bash
+# Run inside Docker (recommended — no local Python needed)
+docker run --rm \
+  --entrypoint python \
+  -e DATABASE_URL="sqlite+aiosqlite:///:memory:" \
+  -e SECRET_KEY="test-secret-key" \
+  shotcut-app \
+  -m pytest backend/tests/ -v --cov=backend
+```
+
+**Current status: 23/23 tests passing — 56% coverage** (threshold: 50%)
+
+---
+
+## Upgrading from Earlier Versions
+
+**Breaking Change:** If you're upgrading from a version prior to the security fixes (commit `e371ae7`):
+
+- All users must re-login due to token storage mechanism changes (localStorage → memory)
+- Refresh Tokens are now httpOnly cookies — update any custom API clients
 
 ---
 
