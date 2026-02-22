@@ -11,7 +11,7 @@ async def sample_highlight(db_session, regular_user):
     hl = Highlight(
         title="測試精華",
         status="completed",
-        file_path="/tmp/test_highlight.mp4",
+        file_path="/tmp/test_highlight.mp4",  # nosec B108
         owner_id=regular_user.id,
     )
     db_session.add(hl)
