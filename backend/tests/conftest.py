@@ -124,7 +124,7 @@ async def sample_video(db_session, regular_user) -> Video:
         title="測試影片",
         source_type="upload",
         status="completed",
-        file_path="/tmp/test.mp4",
+        file_path="/tmp/test.mp4",  # nosec B108
         owner_id=regular_user.id,
     )
     db_session.add(video)

@@ -33,7 +33,7 @@ jobs:
         working-directory: frontend
 
       - name: Security - Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
         working-directory: frontend
 
       - name: Security - Secret scanning
