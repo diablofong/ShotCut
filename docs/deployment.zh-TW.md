@@ -46,6 +46,36 @@ docker compose up -d
 
 ---
 
+## 本機開發環境
+
+**後端：**
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+pip install -r backend/requirements.txt
+
+cp .env.example .env
+# 修改 DATABASE_URL 以連接本機 MariaDB
+
+alembic upgrade head
+
+uvicorn backend.main:app --reload
+```
+
+**前端：**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端開發伺服器：`http://localhost:5173` — 後端 API：`http://localhost:8000`
+
+---
+
 ## 正式環境部署檢查清單
 
 !!! warning "上線前必須完成"
@@ -86,6 +116,59 @@ server {
 ```env
 CORS_ORIGINS=https://shotcut.example.com
 ```
+
+### 容器安全
+
+- 應用程式在 Docker 容器內以非 root 使用者（`shotcut`）執行
+- 資料庫連接埠（3306）未對外開放，僅限 Docker 內部網路存取
+- 敏感檔案（`.env`、`.git`、`data/`）已透過 `.dockerignore` 排除於映像檔外
+
+### Token 安全
+
+- Access Token 儲存於記憶體（非 localStorage），關閉頁面自動清除
+- Refresh Token 儲存於 httpOnly Cookie，防止 XSS 攻擊竊取
+- Token 不出現於 URL 參數，避免日誌與瀏覽器歷史紀錄洩漏
+
+### 檔案上傳安全
+
+- 魔術數字驗證，防止偽造副檔名（例如將 `.exe` 改名為 `.mp4`）
+- 檔名消毒，移除路徑穿越字元（`../`、`..\`）
+- 路徑驗證與 shell 跳脫，防止 FFmpeg 指令注入
+
+### 安全監控
+
+上線後：
+
+- 監控應用程式日誌，注意驗證失敗與可疑活動
+- 定期更新依賴：`docker compose build --pull`
+- 訂閱 FastAPI、React 與 MariaDB 的安全公告
+
+---
+
+## 執行測試
+
+測試使用 SQLite 記憶體模式，無需 MariaDB：
+
+```bash
+# 在 Docker 中執行（推薦，不需本機 Python 環境）
+docker run --rm \
+  --entrypoint python \
+  -e DATABASE_URL="sqlite+aiosqlite:///:memory:" \
+  -e SECRET_KEY="test-secret-key" \
+  shotcut-app \
+  -m pytest backend/tests/ -v --cov=backend
+```
+
+**目前狀態：23/23 測試通過 — 覆蓋率 56%**（門檻：50%）
+
+---
+
+## 從舊版本升級
+
+**重大變更：** 若從安全修復版（commit `e371ae7`）之前的版本升級：
+
+- 所有使用者需重新登入（Token 儲存機制從 localStorage 改為記憶體）
+- Refresh Token 現改為 httpOnly Cookie，若有自訂 API 客戶端需同步更新
 
 ---
 
