@@ -2,7 +2,7 @@
 
 籃球比賽影片標記與片段擷取工具。上傳比賽影片，快速標記分類並自動剪輯出精華片段，分享給教練與家長。
 
-> English documentation: [README.md](README.md)
+**[📖 完整文件](https://diablofong.github.io/ShotCut/zh-TW/)** · [English](README.md)
 
 ## 畫面預覽
 
