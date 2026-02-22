@@ -2,7 +2,7 @@
 
 A basketball game video tagging and clip extraction tool. Upload match footage, quickly tag and classify plays, auto-generate highlight clips, and share them with coaches and parents.
 
-> 中文說明請見 [README.zh-TW.md](README.zh-TW.md)
+**[📖 Documentation](https://diablofong.github.io/ShotCut/)** · [中文說明](README.zh-TW.md)
 
 ## Demo
 
