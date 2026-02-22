@@ -35,7 +35,7 @@ jobs:
 
       - name: Install MkDocs
         run: |
-          pip install mkdocs-material mkdocs-static-i18n
+          pip install "mkdocs>=1.5,<2.0" mkdocs-material mkdocs-static-i18n
 
       - name: Build docs
         run: mkdocs build --strict
