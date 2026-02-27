@@ -9,7 +9,7 @@ sqlalchemy[asyncio]==2.0.35
 aiomysql==0.3.0
 aiosqlite==0.20.0
 alembic==1.13.3
-yt-dlp==2026.2.4
+yt-dlp==2026.2.21
 PyJWT==2.10.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.0
