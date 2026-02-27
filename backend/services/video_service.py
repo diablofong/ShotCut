@@ -357,8 +357,13 @@ async def _async_process_r2_upload(video_id: int, r2_key: str, db_url: str) -> N
 
             try:
                 presigned_get = await storage.generate_presigned_get_url(r2_key, expires_in=300)
-                import urllib.request
-                urllib.request.urlretrieve(presigned_get, tmp_video_path)
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    async with client.stream("GET", presigned_get) as response:
+                        response.raise_for_status()
+                        with open(tmp_video_path, "wb") as f:
+                            async for chunk in response.aiter_bytes():
+                                f.write(chunk)
 
                 success = generate_thumbnail(tmp_video_path, tmp_thumb_path)
                 if success:
