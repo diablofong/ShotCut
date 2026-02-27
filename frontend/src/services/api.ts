@@ -126,6 +126,31 @@ export const videoApi = {
       },
     });
   },
+  // R2 Presigned PUT 上傳流程
+  getUploadUrl: (filename: string, contentType: string) =>
+    api.get('/videos/upload-url', { params: { filename, content_type: contentType } }),
+  uploadToR2: async (
+    presignedUrl: string,
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<void> => {
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', presignedUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            onProgress(Math.round((e.loaded * 100) / e.total));
+          }
+        };
+      }
+      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`R2 upload failed: ${xhr.status}`)));
+      xhr.onerror = () => reject(new Error('R2 upload network error'));
+      xhr.send(file);
+    });
+  },
+  confirmUpload: (id: number) => api.post(`/videos/${id}/confirm`),
   update: (id: number, data: { title: string }) => api.put(`/videos/${id}`, data),
   delete: (id: number) => api.delete(`/videos/${id}`),
   batchDelete: (ids: number[]) => api.post('/videos/batch/delete', { ids }),

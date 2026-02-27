@@ -316,6 +316,73 @@ async def delete_video(db: AsyncSession, video_id: int) -> bool:
     return True
 
 
+async def create_r2_pending(db: AsyncSession, filename: str, r2_key: str, user_id: int | None = None) -> Video:
+    title = os.path.splitext(filename)[0]
+    video = Video(title=title, source_type="upload", status="pending", r2_key=r2_key, owner_id=user_id)
+    db.add(video)
+    await db.commit()
+    await db.refresh(video)
+    return video
+
+
+def process_r2_upload(video_id: int, r2_key: str, db_url: str) -> None:
+    asyncio.run(_async_process_r2_upload(video_id, r2_key, db_url))
+
+
+async def _async_process_r2_upload(video_id: int, r2_key: str, db_url: str) -> None:
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession as AS
+    from sqlalchemy.orm import sessionmaker
+    from backend.services.storage_service import get_storage_service
+
+    engine = create_async_engine(db_url)
+    async_session = sessionmaker(engine, class_=AS, expire_on_commit=False)
+
+    async with async_session() as db:
+        try:
+            video = await db.get(Video, video_id)
+            if not video:
+                return
+            video.status = "completed"
+            await db.commit()
+
+            storage = get_storage_service()
+            settings = get_settings()
+            import tempfile
+
+            from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_r2_key
+            thumb_key = get_video_thumbnail_r2_key(video_id)
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
+                tmp_video_path = tmp_video.name
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_thumb:
+                tmp_thumb_path = tmp_thumb.name
+
+            try:
+                presigned_get = await storage.generate_presigned_get_url(r2_key, expires_in=300)
+                import urllib.request
+                urllib.request.urlretrieve(presigned_get, tmp_video_path)
+
+                success = generate_thumbnail(tmp_video_path, tmp_thumb_path)
+                if success:
+                    await storage.upload_file(tmp_thumb_path, thumb_key)
+                    video = await db.get(Video, video_id)
+                    if video:
+                        video.thumbnail_path = thumb_key
+                        await db.commit()
+            except Exception:
+                pass
+            finally:
+                for p in (tmp_video_path, tmp_thumb_path):
+                    if os.path.exists(p):
+                        os.remove(p)
+        except Exception:
+            video = await db.get(Video, video_id)
+            if video:
+                video.status = "failed"
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+
 async def batch_delete_videos(db: AsyncSession, video_ids: list[int]) -> dict[str, int]:
     """批量刪除影片，回傳成功與失敗數量"""
     success = 0

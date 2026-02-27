@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import get_settings
 from backend.db.database import get_db
 from backend.utils.streaming import stream_file_response
 from backend.auth.dependencies import get_current_user
@@ -16,7 +17,13 @@ from backend.models.share_link import ShareLink
 from backend.models.highlight import Highlight
 from backend.models.user import User
 
-router = APIRouter(tags=["shares"])
+
+def _check_sharing_enabled() -> None:
+    if not get_settings().enable_sharing:
+        raise HTTPException(status_code=404, detail="此功能未啟用")
+
+
+router = APIRouter(tags=["shares"], dependencies=[Depends(_check_sharing_enabled)])
 
 
 class ExpirationOption(str, Enum):

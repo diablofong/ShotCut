@@ -59,6 +59,21 @@ def get_highlight_thumbnail_path(highlight_id: int) -> str:
     return os.path.join(thumbnail_dir, "highlights", f"{highlight_id}.jpg")
 
 
+def get_video_thumbnail_r2_key(video_id: int) -> str:
+    return f"thumbnails/videos/{video_id}.jpg"
+
+
+def get_highlight_thumbnail_r2_key(highlight_id: int) -> str:
+    return f"thumbnails/highlights/{highlight_id}.jpg"
+
+
+async def upload_thumbnail_to_r2(local_path: str, r2_key: str) -> bool:
+    """上傳本地縮圖到 R2，回傳是否成功"""
+    from backend.services.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.upload_file(local_path, r2_key)
+
+
 def _needs_thumbnail(thumbnail_path: str | None) -> bool:
     """檢查是否需要生成縮圖（路徑為空或檔案不存在）"""
     return not thumbnail_path or not os.path.exists(thumbnail_path)

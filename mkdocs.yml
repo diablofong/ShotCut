@@ -48,6 +48,7 @@ plugins:
           nav_translations:
             Home: 首頁
             Deployment: 部署指南
+            Infrastructure Setup: 基礎設施申請 SOP
             Usage Guide: 操作說明
             API Reference: API 參考
             Changelog: 版本紀錄
@@ -55,6 +56,7 @@ plugins:
 nav:
   - Home: index.md
   - Deployment: deployment.md
+  - Infrastructure Setup: infrastructure-setup-sop.md
   - Usage Guide: usage.md
   - API Reference: api.md
   - Changelog: changelog.md

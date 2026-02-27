@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import get_settings
 from backend.db.database import get_db
 from backend.auth.dependencies import get_current_user, verify_highlight_owner
 from backend.models.user import User
@@ -16,7 +17,13 @@ from backend.utils.streaming import stream_file_response, validate_file_path
 
 HIGHLIGHT_DIR = os.getenv("HIGHLIGHT_DIR", "./highlights")
 
-router = APIRouter(tags=["highlights"])
+
+def _check_highlights_enabled() -> None:
+    if not get_settings().enable_highlights:
+        raise HTTPException(status_code=404, detail="此功能未啟用")
+
+
+router = APIRouter(tags=["highlights"], dependencies=[Depends(_check_highlights_enabled)])
 
 
 class GenerateRequest(BaseModel):

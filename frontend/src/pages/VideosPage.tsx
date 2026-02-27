@@ -209,10 +209,21 @@ export default function VideosPage() {
     setUploadProgress(0);
     setError('');
     try {
-      const res = await videoApi.upload(file, (percent) => {
-        setUploadProgress(percent);
-      });
-      const uploadedVideoId = res.data.id;
+      let uploadedVideoId: number;
+      const isR2 = import.meta.env.VITE_STORAGE_BACKEND === 'r2';
+
+      if (isR2) {
+        const urlRes = await videoApi.getUploadUrl(file.name, file.type || 'video/mp4');
+        const { upload_url, video_id } = urlRes.data as { upload_url: string; video_id: number; key: string };
+        await videoApi.uploadToR2(upload_url, file, (percent) => setUploadProgress(percent));
+        await videoApi.confirmUpload(video_id);
+        uploadedVideoId = video_id;
+      } else {
+        const res = await videoApi.upload(file, (percent) => {
+          setUploadProgress(percent);
+        });
+        uploadedVideoId = res.data.id;
+      }
 
       // 立即刷新列表，影片會馬上出現（可能沒有縮圖）
       await fetchVideos();

@@ -1,8 +1,9 @@
 import asyncio
 import os
+import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,7 @@ from backend.db.database import get_db
 from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
 from backend.services import video_service
+from backend.services.storage_service import get_storage_service
 from backend.utils.streaming import stream_file_response, validate_file_path
 from backend.websocket_manager import manager
 from backend.limiter import limiter
@@ -193,6 +195,50 @@ async def batch_delete_videos(
     return {"detail": f"成功刪除 {result['success']} 筆，失敗 {result['failed']} 筆", **result}
 
 
+@router.get("/videos/upload-url", summary="取得 R2 Presigned PUT 上傳 URL（僅 r2 後端）")
+@limiter.limit("10/hour")
+async def get_upload_url(
+    request: Request,
+    filename: str = Query(..., description="檔案名稱，如 game.mp4"),
+    content_type: str = Query(default="video/mp4", description="MIME type"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    if settings.storage_backend != "r2":
+        raise HTTPException(status_code=400, detail="此端點僅適用於 r2 儲存後端")
+
+    from datetime import datetime
+    year = datetime.utcnow().strftime("%Y")
+    key = f"videos/{year}/{uuid.uuid4().hex}_{filename}"
+
+    storage = get_storage_service()
+    upload_url = await storage.generate_presigned_put_url(key, content_type)
+
+    video = await video_service.create_r2_pending(db, filename, key, user_id=current_user.id)
+    return {"upload_url": upload_url, "video_id": video.id, "key": key}
+
+
+@router.post("/videos/{video_id}/confirm", response_model=VideoOut, summary="確認 R2 上傳完成")
+async def confirm_upload(
+    video_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    video = await verify_video_owner(video_id, db, current_user)
+    if video.status != "pending":
+        raise HTTPException(status_code=400, detail="影片狀態不正確")
+    if not video.r2_key:
+        raise HTTPException(status_code=400, detail="此影片非 R2 上傳")
+
+    settings = get_settings()
+    background_tasks.add_task(
+        video_service.process_r2_upload, video.id, video.r2_key, settings.database_url
+    )
+    return video
+
+
 @router.get("/videos/{video_id}/stream")
 async def stream_video(
     video_id: int,
@@ -201,10 +247,17 @@ async def stream_video(
     current_user: User = Depends(get_current_user),
 ):
     video = await verify_video_owner(video_id, db, current_user)
+    settings = get_settings()
+
+    if settings.storage_backend == "r2":
+        if not video.r2_key:
+            raise HTTPException(status_code=404, detail="影片檔案不存在")
+        storage = get_storage_service()
+        presigned_url = await storage.generate_presigned_get_url(video.r2_key)
+        return RedirectResponse(url=presigned_url, status_code=302)
+
     if not video.file_path or not os.path.exists(video.file_path):
         raise HTTPException(status_code=404, detail="影片檔案不存在")
-
-    settings = get_settings()
     file_path = video.file_path
     validate_file_path(file_path, settings.upload_dir)
     file_size = os.path.getsize(file_path)
@@ -230,6 +283,15 @@ async def video_thumbnail(
     from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
 
     video = await verify_video_owner(video_id, db, current_user)
+    settings = get_settings()
+
+    if settings.storage_backend == "r2":
+        if not video.thumbnail_path:
+            raise HTTPException(status_code=404, detail="縮圖不存在")
+        storage = get_storage_service()
+        presigned_url = await storage.generate_presigned_get_url(video.thumbnail_path)
+        return RedirectResponse(url=presigned_url, status_code=302)
+
     if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
         if video.file_path and os.path.exists(video.file_path):
             thumb_path = get_video_thumbnail_path(video.id)

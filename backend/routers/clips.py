@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import get_settings
 from backend.db.database import get_db
 from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
@@ -15,7 +16,12 @@ from backend.utils.streaming import stream_file_response, validate_file_path
 
 CLIP_DIR = os.getenv("CLIP_DIR", "./clips")
 
-router = APIRouter(tags=["clips"])
+def _check_clips_enabled() -> None:
+    if not get_settings().enable_clips:
+        raise HTTPException(status_code=404, detail="此功能未啟用")
+
+
+router = APIRouter(tags=["clips"], dependencies=[Depends(_check_clips_enabled)])
 
 CATEGORY_LABELS = {
     "offense": "進攻",

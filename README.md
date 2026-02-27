@@ -53,6 +53,42 @@ docker compose up -d
 
 Open `http://localhost:8000` in your browser.
 
+### Cloud Deployment (v2.0)
+
+Store videos in Cloudflare R2 and serve the frontend via Cloudflare Pages. Designed for 2-person use at zero cost.
+
+**Infrastructure:**
+
+| Component | Service | Cost |
+|-----------|---------|------|
+| Backend VM | Oracle Cloud ARM A1 (4 OCPU / 24 GB) | Free forever |
+| Object Storage | Cloudflare R2 (10 GB) | Free tier |
+| Frontend CDN | Cloudflare Pages | Free tier |
+| Tunnel / SSL | Cloudflare Tunnel + eu.org domain | Free |
+
+**Setup:**
+
+```bash
+# Copy cloud environment template
+cp .env.cloud.example .env
+
+# Fill in R2 credentials (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, etc.)
+# Then start with MinIO for local R2 simulation:
+docker compose -f docker-compose.cloud.yml up -d
+```
+
+**Feature flags** (set in `.env` to disable unused modules in cloud mode):
+
+```bash
+ENABLE_CLIPS=false
+ENABLE_HIGHLIGHTS=false
+ENABLE_SHARING=false
+```
+
+**Upload flow:** Browser → `GET /api/videos/upload-url` → Presigned PUT → Cloudflare R2 → `POST /api/videos/{id}/confirm`
+
+**Streaming:** `GET /api/videos/{id}/stream` returns HTTP 302 → R2 Presigned GET URL
+
 ### Local Development
 
 **Backend:**
