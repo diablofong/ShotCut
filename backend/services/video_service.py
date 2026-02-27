@@ -346,7 +346,6 @@ async def _async_process_r2_upload(video_id: int, r2_key: str, db_url: str) -> N
             await db.commit()
 
             storage = get_storage_service()
-            settings = get_settings()
             import tempfile
 
             from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_r2_key
