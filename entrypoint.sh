@@ -3,15 +3,15 @@ set -e
 
 echo "等待 MariaDB 就緒..."
 until python -c "
-import asyncio, asyncmy
+import asyncio, aiomysql
 async def check():
-    conn = await asyncmy.connect(
+    conn = await aiomysql.connect(
         host='db', port=3306,
         user='${MYSQL_USER:-shotcut}',
         password='${MYSQL_PASSWORD:-shotcut_pass}',
         db='${MYSQL_DATABASE:-shotcut}'
     )
-    await conn.ensure_closed()
+    conn.close()
 asyncio.run(check())
 " 2>/dev/null; do
     echo "MariaDB 尚未就緒，等待中..."

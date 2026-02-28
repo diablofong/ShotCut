@@ -300,16 +300,26 @@ async def delete_video(db: AsyncSession, video_id: int) -> bool:
     if not video:
         return False
 
-    upload_dir = get_settings().upload_dir
-    video_dir = os.path.join(upload_dir, str(video_id))
-    if os.path.isdir(video_dir):
-        shutil.rmtree(video_dir, ignore_errors=True)
+    settings = get_settings()
 
-    # 刪除縮圖
-    from backend.services.thumbnail_service import get_video_thumbnail_path
-    thumbnail_path = get_video_thumbnail_path(video_id)
-    if os.path.exists(thumbnail_path):
-        os.remove(thumbnail_path)
+    # R2 模式：刪除雲端物件
+    if settings.storage_backend == "r2":
+        from backend.services.storage_service import get_storage_service
+        storage = get_storage_service()
+        if video.r2_key:
+            await storage.delete_object(video.r2_key)
+        if video.thumbnail_path:
+            await storage.delete_object(video.thumbnail_path)
+    else:
+        # 本地模式：刪除本地檔案
+        video_dir = os.path.join(settings.upload_dir, str(video_id))
+        if os.path.isdir(video_dir):
+            shutil.rmtree(video_dir, ignore_errors=True)
+
+        from backend.services.thumbnail_service import get_video_thumbnail_path
+        thumbnail_path = get_video_thumbnail_path(video_id)
+        if os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
 
     await db.delete(video)
     await db.commit()
@@ -391,8 +401,7 @@ async def batch_delete_videos(db: AsyncSession, video_ids: list[int]) -> dict[st
     """批量刪除影片，回傳成功與失敗數量"""
     success = 0
     failed = 0
-    upload_dir = get_settings().upload_dir
-    from backend.services.thumbnail_service import get_video_thumbnail_path
+    settings = get_settings()
 
     for video_id in video_ids:
         video = await db.get(Video, video_id)
@@ -400,14 +409,23 @@ async def batch_delete_videos(db: AsyncSession, video_ids: list[int]) -> dict[st
             failed += 1
             continue
 
-        video_dir = os.path.join(upload_dir, str(video_id))
-        if os.path.isdir(video_dir):
-            shutil.rmtree(video_dir, ignore_errors=True)
-
-        # 刪除縮圖
-        thumbnail_path = get_video_thumbnail_path(video_id)
-        if os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
+        # R2 模式：刪除雲端物件
+        if settings.storage_backend == "r2":
+            from backend.services.storage_service import get_storage_service
+            storage = get_storage_service()
+            if video.r2_key:
+                await storage.delete_object(video.r2_key)
+            if video.thumbnail_path:
+                await storage.delete_object(video.thumbnail_path)
+        else:
+            # 本地模式：刪除本地檔案
+            from backend.services.thumbnail_service import get_video_thumbnail_path
+            video_dir = os.path.join(settings.upload_dir, str(video_id))
+            if os.path.isdir(video_dir):
+                shutil.rmtree(video_dir, ignore_errors=True)
+            thumbnail_path = get_video_thumbnail_path(video_id)
+            if os.path.exists(thumbnail_path):
+                os.remove(thumbnail_path)
 
         await db.delete(video)
         success += 1

@@ -40,6 +40,9 @@ services:
       - "${APP_PORT:-8000}:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
       SECRET_KEY: ${SECRET_KEY}
       IS_PRODUCTION: ${IS_PRODUCTION:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}

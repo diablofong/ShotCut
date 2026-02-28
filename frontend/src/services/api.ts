@@ -199,9 +199,10 @@ export function createProgressWebSocket(
   onMessage: (data: Record<string, unknown>) => void,
   onClose?: () => void,
 ): WebSocket | null {
-  // WebSocket 現在使用 Cookie 認證，不需要傳遞 token
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/api/videos/${videoId}/ws/progress`;
+  const token = getAccessToken();
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+  const wsUrl = `${protocol}//${window.location.host}/api/videos/${videoId}/ws/progress${tokenParam}`;
   try {
     const ws = new WebSocket(wsUrl);
     ws.onmessage = (event) => {

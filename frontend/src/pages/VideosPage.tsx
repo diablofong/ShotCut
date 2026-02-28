@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { videoApi, createProgressWebSocket } from '../services/api';
+import { videoApi, createProgressWebSocket, getAccessToken } from '../services/api';
 import Navbar from '../components/Navbar';
 import DataTable, { type Column } from '../components/DataTable';
 import SearchInput from '../components/SearchInput';
@@ -340,7 +340,7 @@ export default function VideosPage() {
       width: 'w-20',
       render: (v) => (
         <img
-          src={`/api/videos/${v.id}/thumbnail`}
+          src={`/api/videos/${v.id}/thumbnail?token=${encodeURIComponent(getAccessToken() ?? '')}`}
           alt=""
           className="w-16 h-9 object-cover rounded bg-gray-200"
           onError={(e) => {

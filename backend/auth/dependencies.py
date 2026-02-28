@@ -14,7 +14,8 @@ async def get_current_user(
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    effective_token = token
+    # 若 Bearer header 沒有 token，嘗試從 query param 取得（供 img src URL 使用）
+    effective_token = token or request.query_params.get("token")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="認證失敗",

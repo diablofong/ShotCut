@@ -1,3 +1,5 @@
+# 雲端遷移任務清單
+
 ## Phase A：基礎層
 
 - [x] A1. 新增 `openspec/specs/feature-flags/spec.md` base spec
@@ -35,6 +37,30 @@
 - [x] V1. `npx @fission-ai/openspec validate cloud-migration` 通過
 - [x] V2. `pytest` 全部通過（SQLite in-memory，23 passed）
 - [x] V3. TypeScript 型別檢查通過（Docker build 成功驗證）
-- [ ] V4. MinIO 本地測試：Presigned PUT 上傳成功（需基礎設施就緒後測試）
-- [ ] V5. MinIO 本地測試：302 redirect 串流正常（需基礎設施就緒後測試）
-- [ ] V6. Feature Flag=false：/clips /highlights /shares 回傳 404（待整合測試）
+- [x] V4. MinIO 本地測試：Presigned PUT 上傳成功（2026-03-01 API 層驗證，見 Bug-01）
+- [x] V5. MinIO 本地測試：302 redirect 串流正常（2026-03-01 API 層驗證，見 Bug-01）
+- [x] V6. Feature Flag=false：/clips /highlights /shares 回傳 404（2026-03-01 驗證）
+
+## 已知問題（網頁整合測試，2026-03-01）
+
+### Bug-01（高優先）：前端未走 R2 上傳路徑
+
+- **現象**：上傳影片後 MinIO bucket 為空，縮圖 404，WebSocket 無事件
+- **根本原因**：`VideosPage.tsx` 以 `import.meta.env.VITE_STORAGE_BACKEND === 'r2'` 判斷路徑。Vite 在 `npm run build` 時將 env 烤入，但 `docker-compose.cloud.yml` 的 `app.build` 沒有傳入 `VITE_STORAGE_BACKEND=r2` build arg，導致前端永遠走本機 multipart 上傳路徑。
+- **影響**：V4/V5 僅透過 API 直接測試（curl + docker exec）通過；網頁實際操作未通過
+- **修復方向**：在 `Dockerfile` 加入 `ARG VITE_STORAGE_BACKEND`，並在 `docker-compose.cloud.yml` 的 `build.args` 傳入 `VITE_STORAGE_BACKEND: ${STORAGE_BACKEND:-local}`
+- **修復任務**：見 E1
+
+### Bug-02（已修復）：路由順序衝突 `/videos/upload-url` vs `/videos/{video_id}`
+
+- **現象**：`GET /api/videos/upload-url` 回傳 422（"upload-url" 被解析為 video_id）
+- **狀態**：已修復（2026-03-01），`upload-url` 路由移至 `{video_id}` 前
+
+### Bug-03（已修復）：entrypoint.sh 使用 asyncmy，但只安裝 aiomysql
+
+- **狀態**：已修復（2026-03-01）
+
+## Phase E：Bug 修復
+
+- [ ] E1. `Dockerfile`：加入 `ARG VITE_STORAGE_BACKEND` / `ENV VITE_STORAGE_BACKEND`，並在 `docker-compose.cloud.yml` build args 傳入對應值
+- [ ] E2. 重新驗證 V4/V5（網頁上傳流程），確認 MinIO 有檔案、縮圖正確產生

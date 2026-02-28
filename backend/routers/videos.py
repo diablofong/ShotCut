@@ -127,6 +127,30 @@ async def list_videos(
     return await video_service.list_videos(db, owner_id=current_user.id, limit=limit, offset=offset)
 
 
+@router.get("/videos/upload-url", summary="取得 R2 Presigned PUT 上傳 URL（僅 r2 後端）")
+@limiter.limit("10/hour")
+async def get_upload_url(
+    request: Request,
+    filename: str = Query(..., description="檔案名稱，如 game.mp4"),
+    content_type: str = Query(default="video/mp4", description="MIME type"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    if settings.storage_backend != "r2":
+        raise HTTPException(status_code=400, detail="此端點僅適用於 r2 儲存後端")
+
+    from datetime import datetime
+    year = datetime.utcnow().strftime("%Y")
+    key = f"videos/{year}/{uuid.uuid4().hex}_{filename}"
+
+    storage = get_storage_service()
+    upload_url = await storage.generate_presigned_put_url(key, content_type)
+
+    video = await video_service.create_r2_pending(db, filename, key, user_id=current_user.id)
+    return {"upload_url": upload_url, "video_id": video.id, "key": key}
+
+
 @router.get(
     "/videos/{video_id}",
     response_model=VideoOut,
@@ -193,30 +217,6 @@ async def batch_delete_videos(
 
     result = await video_service.batch_delete_videos(db, req.ids)
     return {"detail": f"成功刪除 {result['success']} 筆，失敗 {result['failed']} 筆", **result}
-
-
-@router.get("/videos/upload-url", summary="取得 R2 Presigned PUT 上傳 URL（僅 r2 後端）")
-@limiter.limit("10/hour")
-async def get_upload_url(
-    request: Request,
-    filename: str = Query(..., description="檔案名稱，如 game.mp4"),
-    content_type: str = Query(default="video/mp4", description="MIME type"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    settings = get_settings()
-    if settings.storage_backend != "r2":
-        raise HTTPException(status_code=400, detail="此端點僅適用於 r2 儲存後端")
-
-    from datetime import datetime
-    year = datetime.utcnow().strftime("%Y")
-    key = f"videos/{year}/{uuid.uuid4().hex}_{filename}"
-
-    storage = get_storage_service()
-    upload_url = await storage.generate_presigned_put_url(key, content_type)
-
-    video = await video_service.create_r2_pending(db, filename, key, user_id=current_user.id)
-    return {"upload_url": upload_url, "video_id": video.id, "key": key}
 
 
 @router.post("/videos/{video_id}/confirm", response_model=VideoOut, summary="確認 R2 上傳完成")
@@ -309,11 +309,11 @@ async def websocket_progress(
     video_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """WebSocket 即時推送影片下載進度（使用 Cookie 認證）"""
+    """WebSocket 即時推送影片下載進度（支援 query param token 或 Cookie 認證）"""
     from backend.auth.dependencies import get_current_user_from_token
 
-    # 從 Cookie 讀取 token
-    token = websocket.cookies.get("access_token")
+    # 優先從 query param 讀取 token，再嘗試 Cookie
+    token = websocket.query_params.get("token") or websocket.cookies.get("access_token")
     if not token:
         await websocket.close(code=4001)
         return
