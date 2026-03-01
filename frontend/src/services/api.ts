@@ -151,6 +151,7 @@ export const videoApi = {
     });
   },
   confirmUpload: (id: number) => api.post(`/videos/${id}/confirm`),
+  streamUrl: (id: number) => api.get<{ url: string }>(`/videos/${id}/stream-url`),
   update: (id: number, data: { title: string }) => api.put(`/videos/${id}`, data),
   delete: (id: number) => api.delete(`/videos/${id}`),
   batchDelete: (ids: number[]) => api.post('/videos/batch/delete', { ids }),

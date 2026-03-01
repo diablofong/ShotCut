@@ -101,13 +101,14 @@ async def login(
 @router.post(
     "/refresh",
     summary="刷新 Access Token",
-    description="使用 httpOnly Cookie 中的 Refresh Token 換取新的 Access Token。Refresh Token 無效或已撤銷時回傳 401。",
+    description="使用 httpOnly Cookie 中的 Refresh Token 換取新的 Access Token。每次使用後舊 Token 立即撤銷（Rotation），Refresh Token 無效或已撤銷時回傳 401。",
     responses={
         200: {"description": "回傳新的 access_token"},
         401: {"description": "Refresh Token 無效、已過期或已撤銷"},
     },
 )
 async def refresh_access_token(
+    request: Request,
     response: Response,
     refresh_token: str | None = Cookie(None, alias=_REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
@@ -122,6 +123,21 @@ async def refresh_access_token(
     user = await db.get(User, rt.user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="認證失敗")
+
+    # Refresh Token Rotation：撤銷舊 token，發放新 token
+    await revoke_refresh_token(db, refresh_token)
+    new_refresh_token = await create_refresh_token(db, user.id)
+
+    settings = get_settings()
+    is_secure = settings.is_production or request.headers.get("x-forwarded-proto") == "https"
+    response.set_cookie(
+        key=_REFRESH_COOKIE,
+        value=new_refresh_token,
+        httponly=True,
+        samesite="lax",
+        max_age=_REFRESH_MAX_AGE,
+        secure=is_secure,
+    )
 
     new_access_token = create_access_token(user.id, user.role)
     return {"access_token": new_access_token, "token_type": "bearer"}

@@ -1,19 +1,16 @@
+# 開發覆寫：暴露 MinIO Console（port 9001）+ hot reload
+# 使用方式：docker compose -f docker-compose.selfhosted.yml -f docker-compose.dev.yml up
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./backend:/app/backend
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
-      - uploads_data:/app/uploads
-      - clips_data:/app/clips
-      - highlights_data:/app/highlights
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      SECRET_KEY: ${SECRET_KEY}
-      UPLOAD_DIR: /app/uploads
-      CLIP_DIR: /app/clips
-      HIGHLIGHT_DIR: /app/highlights
+      IS_PRODUCTION: "false"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"

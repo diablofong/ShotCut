@@ -1,51 +1,69 @@
 ## Design Decisions
 
-### 1. StorageService 抽象層
+### 1. S3StorageService（唯一儲存後端）
 
-採用 Abstract Base Class 模式，定義統一介面：
-
-```python
-class StorageService(ABC):
-    async def generate_presigned_put_url(key, content_type, expires_in=3600) -> str
-    async def generate_presigned_get_url(key, expires_in=3600) -> str
-    async def delete_object(key) -> bool
-    async def upload_file(local_path, key) -> bool
-```
-
-- `LocalStorageService`：local 後端，`generate_presigned_*` 拋出 NotImplementedError
-- `R2StorageService`：使用 boto3 S3-compatible API，endpoint 指向 R2
-
-工廠函式 `get_storage_service()` 根據 `settings.storage_backend` 回傳對應實例。
-
-### 2. Presigned PUT 上傳流程
-
-```
-前端 → GET /api/videos/upload-url → { upload_url, video_id, key }
-前端 → PUT <upload_url> （直接傳至 R2，不經過後端）
-前端 → POST /api/videos/{id}/confirm → 觸發縮圖生成
-```
-
-Video 記錄在 Step 1 建立（status=pending），Step 3 後更新為 completed。
-新增 `r2_key` 欄位記錄 R2 object key（格式：`videos/{year}/{uuid}.mp4`）。
-
-### 3. Feature Flag 系統
-
-在 `backend/config.py` 新增三個 bool 欄位，預設 `True`（向後相容）：
+移除 `LocalStorageService`，`R2StorageService` 重命名為 `S3StorageService`：
 
 ```python
-enable_clips: bool = True
-enable_highlights: bool = True
-enable_sharing: bool = True
+class S3StorageService(StorageService):
+    """S3-compatible，支援 MinIO / R2 / AWS S3 / Backblaze B2"""
 ```
 
-各 router 在第一個操作前檢查：若為 False，回傳 HTTP 404。
+工廠函式 `get_storage_service()` 直接回傳 `S3StorageService`，不再切換。
 
-### 4. YouTube 下載相容
+### 2. 環境變數統一（S3_*）
 
-yt-dlp 下載至 VM 本地暫存 → `storage_service.upload_file()` 上傳至 R2 → 刪除暫存。
-本地模式不變。
+| 舊變數 | 新變數 |
+|--------|--------|
+| `R2_ACCESS_KEY_ID` | `S3_ACCESS_KEY_ID` |
+| `R2_SECRET_ACCESS_KEY` | `S3_SECRET_ACCESS_KEY` |
+| `R2_BUCKET_NAME` | `S3_BUCKET_NAME` |
+| `R2_ENDPOINT_URL` | `S3_ENDPOINT_URL` |
+| `STORAGE_BACKEND` | （移除） |
 
-### 5. 本地開發環境
+`config.py` validator 自動將舊 `R2_*` 映射到 `S3_*`（向後相容）。
 
-新增 `docker-compose.cloud.yml`，包含 MinIO service（模擬 R2）。
-`.env.cloud.local` 設定 `R2_ENDPOINT_URL=http://localhost:9000`。
+### 3. Runtime Config（GET /api/config）
+
+```
+GET /api/config → { features: { clips, highlights, sharing } }
+```
+
+前端新增 `useAppConfig` hook，app 初始化時讀取，移除 `VITE_STORAGE_BACKEND`。
+
+### 4. 模組化 Docker Compose
+
+```
+docker-compose.yml            # app only（核心）
+docker-compose.db.yml         # MariaDB 模組（health check + named volume）
+docker-compose.s3.yml         # MinIO 模組（不 expose port 9001）
+docker-compose.dev.yml        # 開發覆寫（port 9001）
+docker-compose.selfhosted.yml # Preset：include db + s3
+docker-compose.cloud.yml      # Preset：app only（外部服務）
+```
+
+### 5. MinIO 與 S3 變數合併
+
+```yaml
+minio:
+  environment:
+    MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
+    MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
+app:
+  environment:
+    DATABASE_URL: mysql+aiomysql://shotcut:${DB_PASSWORD}@db:3306/shotcut
+    S3_ENDPOINT_URL: http://minio:9000
+```
+
+使用者只填一套 `S3_*` + `DB_PASSWORD`，selfhosted preset 自動組裝連線字串。
+
+### 6. Presigned URL 安全時效
+
+- PUT（上傳）：**900s**（15 分鐘）
+- GET（串流/縮圖）：**1800s**（30 分鐘）
+
+### 7. 測試策略
+
+- **DB**：`sqlite+aiosqlite:///:memory:`（不變）
+- **S3**：Mock `S3StorageService` 介面（`mock_storage` fixture）
+- **整合測試**：MinIO 手動驗證（不在 CI）

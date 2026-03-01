@@ -210,20 +210,12 @@ export default function VideosPage() {
     setError('');
     try {
       let uploadedVideoId: number;
-      const isR2 = import.meta.env.VITE_STORAGE_BACKEND === 'r2';
 
-      if (isR2) {
-        const urlRes = await videoApi.getUploadUrl(file.name, file.type || 'video/mp4');
-        const { upload_url, video_id } = urlRes.data as { upload_url: string; video_id: number; key: string };
-        await videoApi.uploadToR2(upload_url, file, (percent) => setUploadProgress(percent));
-        await videoApi.confirmUpload(video_id);
-        uploadedVideoId = video_id;
-      } else {
-        const res = await videoApi.upload(file, (percent) => {
-          setUploadProgress(percent);
-        });
-        uploadedVideoId = res.data.id;
-      }
+      const urlRes = await videoApi.getUploadUrl(file.name, file.type || 'video/mp4');
+      const { upload_url, video_id } = urlRes.data as { upload_url: string; video_id: number; key: string };
+      await videoApi.uploadToR2(upload_url, file, (percent) => setUploadProgress(percent));
+      await videoApi.confirmUpload(video_id);
+      uploadedVideoId = video_id;
 
       // 立即刷新列表，影片會馬上出現（可能沒有縮圖）
       await fetchVideos();
@@ -249,8 +241,9 @@ export default function VideosPage() {
       if (ws) {
         wsConnections.current.set(uploadedVideoId, ws);
       }
-    } catch {
-      setError('上傳失敗');
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? '上傳失敗');
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -511,7 +504,7 @@ export default function VideosPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*"
+              accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
               onChange={handleUpload}
               className="hidden"
             />
@@ -532,7 +525,7 @@ export default function VideosPage() {
                 </div>
               </div>
             )}
-            {!uploading && <span className="text-xs text-gray-400">支援 MP4、MOV 等影片格式</span>}
+            {!uploading && <span className="text-xs text-gray-400">支援 MP4、MOV、WebM、MKV（不支援 AVI）</span>}
           </div>
         </div>
 

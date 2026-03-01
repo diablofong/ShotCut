@@ -2,8 +2,8 @@ import asyncio
 import os
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,6 @@ from backend.auth.dependencies import get_current_user, verify_video_owner
 from backend.models.user import User
 from backend.services import video_service
 from backend.services.storage_service import get_storage_service
-from backend.utils.streaming import stream_file_response, validate_file_path
 from backend.websocket_manager import manager
 from backend.limiter import limiter
 
@@ -52,7 +51,7 @@ class VideoOut(BaseModel):
     "/videos/download",
     response_model=VideoOut,
     summary="從 YouTube 下載影片",
-    description="提交 YouTube 網址，後台非同步下載。回傳初始 Video 物件（status=pending）。下載進度可透過 WebSocket `/videos/{id}/ws/progress` 接收。限制每 IP 每小時最多 10 次。",
+    description="提交 YouTube 網址，後台非同步下載。回傳初始 Video 物件（status=pending）。限制每 IP 每小時最多 10 次。",
     responses={
         200: {"description": "已建立下載任務"},
         400: {"description": "非 YouTube 連結"},
@@ -78,42 +77,11 @@ async def download_video(
     return video
 
 
-@router.post(
-    "/videos/upload",
-    response_model=VideoOut,
-    summary="上傳影片檔案",
-    description="上傳本機影片（支援 .mp4 / .avi / .mov / .mkv），同步完成並立即產生縮圖。檔案大小上限由 `MAX_UPLOAD_SIZE_MB` 環境變數控制（預設 2048 MB）。限制每 IP 每小時最多 10 次。",
-    responses={
-        200: {"description": "上傳成功，status=completed"},
-        400: {"description": "不支援的檔案格式"},
-        413: {"description": "檔案超過大小上限"},
-        429: {"description": "請求過於頻繁"},
-    },
-)
-@limiter.limit("10/hour")
-async def upload_video(
-    request: Request,
-    file: UploadFile,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    settings = get_settings()
-    try:
-        video = await video_service.create_upload_stream(
-            db, file.filename or "video.mp4", file, settings.max_upload_size_bytes, user_id=current_user.id
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except video_service.FileTooLargeError:
-        raise HTTPException(status_code=413, detail=f"檔案大小超過上限（{settings.max_upload_size_mb} MB）")
-    return video
-
-
 @router.get(
     "/videos",
     response_model=list[VideoOut],
     summary="影片列表",
-    description="回傳目前使用者的所有影片，依建立時間倒序排列。管理員可看到所有使用者的影片。支援 `limit`（最多 500）與 `offset` 分頁。",
+    description="回傳目前使用者的所有影片，依建立時間倒序排列。管理員可看到所有使用者的影片。",
     responses={401: {"description": "未登入"}},
 )
 async def list_videos(
@@ -127,27 +95,36 @@ async def list_videos(
     return await video_service.list_videos(db, owner_id=current_user.id, limit=limit, offset=offset)
 
 
-@router.get("/videos/upload-url", summary="取得 R2 Presigned PUT 上傳 URL（僅 r2 後端）")
+_ALLOWED_VIDEO_CONTENT_TYPES = {
+    "video/mp4",
+    "video/quicktime",
+    "video/x-matroska",
+    "video/webm",
+}
+
+
+@router.get("/videos/upload-url", summary="取得 S3 Presigned PUT 上傳 URL")
 @limiter.limit("10/hour")
 async def get_upload_url(
     request: Request,
-    filename: str = Query(..., description="檔案名稱，如 game.mp4"),
+    filename: str = Query(..., description="檔案名稱，如 game.mp4", max_length=255),
     content_type: str = Query(default="video/mp4", description="MIME type"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    settings = get_settings()
-    if settings.storage_backend != "r2":
-        raise HTTPException(status_code=400, detail="此端點僅適用於 r2 儲存後端")
+    if content_type not in _ALLOWED_VIDEO_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="不支援的 content_type，請使用影片格式")
 
     from datetime import datetime
+    from backend.services.video_service import sanitize_filename
+    safe_name = sanitize_filename(filename)
     year = datetime.utcnow().strftime("%Y")
-    key = f"videos/{year}/{uuid.uuid4().hex}_{filename}"
+    key = f"videos/{year}/{uuid.uuid4().hex}_{safe_name}"
 
     storage = get_storage_service()
-    upload_url = await storage.generate_presigned_put_url(key, content_type)
+    upload_url = await storage.generate_presigned_put_url(key, content_type, expires_in=900)
 
-    video = await video_service.create_r2_pending(db, filename, key, user_id=current_user.id)
+    video = await video_service.create_r2_pending(db, safe_name, key, user_id=current_user.id)
     return {"upload_url": upload_url, "video_id": video.id, "key": key}
 
 
@@ -155,7 +132,6 @@ async def get_upload_url(
     "/videos/{video_id}",
     response_model=VideoOut,
     summary="取得單一影片",
-    description="回傳指定影片的詳細資訊。一般使用者只能存取自己的影片，管理員可存取所有影片。",
     responses={
         401: {"description": "未登入"},
         403: {"description": "無權存取此影片"},
@@ -206,11 +182,9 @@ async def batch_delete_videos(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """批量刪除影片"""
     if not req.ids:
         raise HTTPException(status_code=400, detail="未指定任何 ID")
 
-    # 驗證權限：一般使用者只能刪除自己的影片
     if current_user.role != "admin":
         for video_id in req.ids:
             await verify_video_owner(video_id, db, current_user)
@@ -219,8 +193,10 @@ async def batch_delete_videos(
     return {"detail": f"成功刪除 {result['success']} 筆，失敗 {result['failed']} 筆", **result}
 
 
-@router.post("/videos/{video_id}/confirm", response_model=VideoOut, summary="確認 R2 上傳完成")
+@router.post("/videos/{video_id}/confirm", response_model=VideoOut, summary="確認 S3 上傳完成")
+@limiter.limit("20/hour")
 async def confirm_upload(
+    request: Request,
     video_id: int,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -230,7 +206,12 @@ async def confirm_upload(
     if video.status != "pending":
         raise HTTPException(status_code=400, detail="影片狀態不正確")
     if not video.r2_key:
-        raise HTTPException(status_code=400, detail="此影片非 R2 上傳")
+        raise HTTPException(status_code=400, detail="此影片無 S3 物件 key")
+
+    # 先原子性地將狀態改為 processing，防止重複 confirm 的競態條件
+    video.status = "processing"
+    await db.commit()
+    await db.refresh(video)
 
     settings = get_settings()
     background_tasks.add_task(
@@ -242,26 +223,32 @@ async def confirm_upload(
 @router.get("/videos/{video_id}/stream")
 async def stream_video(
     video_id: int,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     video = await verify_video_owner(video_id, db, current_user)
-    settings = get_settings()
-
-    if settings.storage_backend == "r2":
-        if not video.r2_key:
-            raise HTTPException(status_code=404, detail="影片檔案不存在")
-        storage = get_storage_service()
-        presigned_url = await storage.generate_presigned_get_url(video.r2_key)
-        return RedirectResponse(url=presigned_url, status_code=302)
-
-    if not video.file_path or not os.path.exists(video.file_path):
+    if not video.r2_key:
         raise HTTPException(status_code=404, detail="影片檔案不存在")
-    file_path = video.file_path
-    validate_file_path(file_path, settings.upload_dir)
-    file_size = os.path.getsize(file_path)
-    return stream_file_response(file_path, file_size, request.headers.get("range"))
+    storage = get_storage_service()
+    presigned_url = await storage.generate_presigned_get_url(video.r2_key)
+    return RedirectResponse(url=presigned_url, status_code=302)
+
+
+@router.get("/videos/{video_id}/stream-url")
+async def stream_url(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """回傳 presigned GET URL（JSON），供前端 video player 直接使用。
+    <video> 元素無法帶 Authorization header，故不能直接用 /stream（302）。
+    """
+    video = await verify_video_owner(video_id, db, current_user)
+    if not video.r2_key:
+        raise HTTPException(status_code=404, detail="影片檔案不存在")
+    storage = get_storage_service()
+    presigned_url = await storage.generate_presigned_get_url(video.r2_key)
+    return {"url": presigned_url}
 
 
 @router.get("/videos/{video_id}/status", response_model=VideoOut)
@@ -280,27 +267,12 @@ async def video_thumbnail(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
-
     video = await verify_video_owner(video_id, db, current_user)
-    settings = get_settings()
-
-    if settings.storage_backend == "r2":
-        if not video.thumbnail_path:
-            raise HTTPException(status_code=404, detail="縮圖不存在")
-        storage = get_storage_service()
-        presigned_url = await storage.generate_presigned_get_url(video.thumbnail_path)
-        return RedirectResponse(url=presigned_url, status_code=302)
-
-    if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
-        if video.file_path and os.path.exists(video.file_path):
-            thumb_path = get_video_thumbnail_path(video.id)
-            if generate_thumbnail(video.file_path, thumb_path):
-                video.thumbnail_path = thumb_path
-                await db.commit()
-    if not video.thumbnail_path or not os.path.exists(video.thumbnail_path):
+    if not video.thumbnail_path:
         raise HTTPException(status_code=404, detail="縮圖不存在")
-    return FileResponse(video.thumbnail_path, media_type="image/jpeg")
+    storage = get_storage_service()
+    presigned_url = await storage.generate_presigned_get_url(video.thumbnail_path)
+    return RedirectResponse(url=presigned_url, status_code=302)
 
 
 @router.websocket("/videos/{video_id}/ws/progress")
@@ -309,25 +281,29 @@ async def websocket_progress(
     video_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """WebSocket 即時推送影片下載進度（支援 query param token 或 Cookie 認證）"""
+    """WebSocket 即時推送影片下載進度"""
     from backend.auth.dependencies import get_current_user_from_token
 
-    # 優先從 query param 讀取 token，再嘗試 Cookie
     token = websocket.query_params.get("token") or websocket.cookies.get("access_token")
     if not token:
         await websocket.close(code=4001)
         return
 
     try:
-        await get_current_user_from_token(token, db)
+        current_user = await get_current_user_from_token(token, db)
     except Exception:
         await websocket.close(code=4001)
+        return
+
+    from backend.models.video import Video as VideoModel
+    video = await db.get(VideoModel, video_id)
+    if not video or (current_user.role != "admin" and video.owner_id != current_user.id):
+        await websocket.close(code=4003)
         return
 
     await manager.connect(video_id, websocket)
     try:
         while True:
-            # 保持連線存活，等待 disconnect
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(video_id, websocket)

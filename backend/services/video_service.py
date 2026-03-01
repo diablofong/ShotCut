@@ -1,15 +1,11 @@
 import asyncio
 import os
 import re
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 
-import filetype
 import yt_dlp
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from fastapi import UploadFile
 
 from backend.config import get_settings
 from backend.models.video import Video
@@ -66,12 +62,10 @@ async def _async_download(video_id: int, url: str, db_url: str, main_loop: async
             output_dir = _video_dir(video_id)
             output_path = os.path.join(output_dir, "original.%(ext)s")
 
-            # 共享進度資料，由 progress_hook（在下載執行緒）寫入
             progress = {"percent": 0.0, "speed": None, "eta": None, "updated": False}
             download_done = False
 
             def _broadcast(data: dict):
-                """跨事件迴圈廣播至 WebSocket 用戶端"""
                 if main_loop and main_loop.is_running():
                     from backend.websocket_manager import manager as ws_manager
                     asyncio.run_coroutine_threadsafe(ws_manager.broadcast(video_id, data), main_loop)
@@ -86,7 +80,6 @@ async def _async_download(video_id: int, url: str, db_url: str, main_loop: async
                     progress["updated"] = True
 
             async def flush_progress():
-                """每 2 秒將進度寫入 DB 並廣播至 WebSocket"""
                 while not download_done:
                     if progress["updated"]:
                         pct = round(progress["percent"], 1)
@@ -133,21 +126,52 @@ async def _async_download(video_id: int, url: str, db_url: str, main_loop: async
                 video.title = info.get("title", "未知標題")
                 video.duration = info.get("duration")
 
-                # 找到下載的檔案
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     downloaded = ydl.prepare_filename(info)
-                video.file_path = downloaded
-                video.file_size = os.path.getsize(downloaded) if os.path.exists(downloaded) else None
+
+                # 上傳至 S3
+                from backend.services.storage_service import get_storage_service
+                from datetime import datetime
+                import uuid as _uuid
+                storage = get_storage_service()
+                year = datetime.utcnow().strftime("%Y")
+                s3_key = f"videos/{year}/{_uuid.uuid4().hex}_{os.path.basename(downloaded)}"
+                file_size = os.path.getsize(downloaded) if os.path.exists(downloaded) else None
+                await storage.upload_file(downloaded, s3_key)  # upload_file 會刪除本地暫存
+
+                video.r2_key = s3_key
+                video.file_size = file_size
                 video.status = "completed"
                 video.download_progress = 100.0
                 video.download_speed = None
                 video.download_eta = None
 
-                # 產生縮圖
-                from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
-                thumb_path = get_video_thumbnail_path(video_id)
-                if generate_thumbnail(downloaded, thumb_path):
-                    video.thumbnail_path = thumb_path
+                # 產生縮圖（從 S3 下載暫存 → FFmpeg → 上傳縮圖）
+                import tempfile
+                from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_r2_key
+                thumb_key = get_video_thumbnail_r2_key(video_id)
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_v:
+                    tmp_video_path = tmp_v.name
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_t:
+                    tmp_thumb_path = tmp_t.name
+                try:
+                    presigned_get = await storage.generate_presigned_get_url(s3_key, expires_in=300)
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        async with client.stream("GET", presigned_get) as response:
+                            response.raise_for_status()
+                            with open(tmp_video_path, "wb") as f:
+                                async for chunk in response.aiter_bytes():
+                                    f.write(chunk)
+                    if generate_thumbnail(tmp_video_path, tmp_thumb_path):
+                        await storage.upload_file(tmp_thumb_path, thumb_key)
+                        video.thumbnail_path = thumb_key
+                except Exception:
+                    pass
+                finally:
+                    for p in (tmp_video_path, tmp_thumb_path):
+                        if os.path.exists(p):
+                            os.remove(p)
 
                 _broadcast({"status": "completed", "progress": 100.0})
 
@@ -164,120 +188,11 @@ async def _async_download(video_id: int, url: str, db_url: str, main_loop: async
 
 def sanitize_filename(filename: str) -> str:
     """清理檔案名稱，移除路徑遍歷字符"""
-    # 移除路徑分隔符和特殊字符
     filename = os.path.basename(filename)
-    # 移除 .. 和其他危險字符
     filename = filename.replace('..', '').replace('/', '').replace('\\', '')
-    # 如果清理後為空，使用預設名稱
     if not filename:
         filename = 'video.mp4'
     return filename
-
-
-async def create_upload_stream(
-    db: AsyncSession, filename: str, file: UploadFile, max_size: int, user_id: int | None = None
-) -> Video:
-    # 允許的影片 MIME 類型
-    ALLOWED_VIDEO_MIMES = {
-        'video/mp4',
-        'video/quicktime',  # .mov
-        'video/x-msvideo',  # .avi
-        'video/x-matroska',  # .mkv
-    }
-
-    allowed_ext = {".mp4", ".avi", ".mov", ".mkv"}
-
-    # 清理檔案名稱
-    filename = sanitize_filename(filename)
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in allowed_ext:
-        raise ValueError(f"不支援的檔案格式: {ext}")
-
-    # 讀取前 262 bytes 進行魔數檢查
-    first_chunk = await file.read(262)
-    if not first_chunk:
-        raise ValueError("檔案為空")
-
-    kind = filetype.guess(first_chunk)
-    if not kind or kind.mime not in ALLOWED_VIDEO_MIMES:
-        detected_type = kind.mime if kind else 'unknown'
-        raise ValueError(f"檔案類型不符，偵測到: {detected_type}，需要影片檔案")
-
-    # 重置檔案指針以繼續讀取
-    await file.seek(0)
-
-    video = Video(title=filename, source_type="upload", status="completed", owner_id=user_id)
-    db.add(video)
-    await db.commit()
-    await db.refresh(video)
-
-    output_dir = _video_dir(video.id)
-    file_path = os.path.join(output_dir, f"original{ext}")
-    total_written = 0
-    try:
-        with open(file_path, "wb") as f:
-            while True:
-                chunk = await file.read(8192)
-                if not chunk:
-                    break
-                total_written += len(chunk)
-                if total_written > max_size:
-                    raise FileTooLargeError()
-                f.write(chunk)
-    except FileTooLargeError:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        await db.delete(video)
-        await db.commit()
-        raise
-
-    video.file_path = file_path
-    video.file_size = total_written
-
-    # 讀取影片時長
-    try:
-        import ffmpeg
-        probe = ffmpeg.probe(file_path)
-        video.duration = float(probe['format']['duration'])
-    except Exception:
-        # 如果讀取失敗，設為 None
-        video.duration = None
-
-    await db.commit()
-    await db.refresh(video)
-
-    # 背景生成縮圖（不阻塞回應）
-    import asyncio
-    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_path
-
-    async def generate_thumbnail_async():
-        """背景任務：生成縮圖並透過 WebSocket 通知"""
-        thumb_path = get_video_thumbnail_path(video.id)
-        success = generate_thumbnail(file_path, thumb_path)
-
-        if success:
-            # 更新資料庫
-            from backend.database import get_async_engine
-            from sqlalchemy.ext.asyncio import AsyncSession
-            engine = get_async_engine()
-            async with AsyncSession(engine) as session:
-                vid = await session.get(Video, video.id)
-                if vid:
-                    vid.thumbnail_path = thumb_path
-                    await session.commit()
-            await engine.dispose()
-
-        # 透過 WebSocket 推送縮圖生成完成事件
-        from backend.websocket_manager import manager
-        await manager.broadcast(video.id, {
-            "event": "thumbnail_generated",
-            "success": success,
-            "video_id": video.id,
-        })
-
-    asyncio.create_task(generate_thumbnail_async())
-
-    return video
 
 
 async def list_videos(
@@ -300,26 +215,12 @@ async def delete_video(db: AsyncSession, video_id: int) -> bool:
     if not video:
         return False
 
-    settings = get_settings()
-
-    # R2 模式：刪除雲端物件
-    if settings.storage_backend == "r2":
-        from backend.services.storage_service import get_storage_service
-        storage = get_storage_service()
-        if video.r2_key:
-            await storage.delete_object(video.r2_key)
-        if video.thumbnail_path:
-            await storage.delete_object(video.thumbnail_path)
-    else:
-        # 本地模式：刪除本地檔案
-        video_dir = os.path.join(settings.upload_dir, str(video_id))
-        if os.path.isdir(video_dir):
-            shutil.rmtree(video_dir, ignore_errors=True)
-
-        from backend.services.thumbnail_service import get_video_thumbnail_path
-        thumbnail_path = get_video_thumbnail_path(video_id)
-        if os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
+    from backend.services.storage_service import get_storage_service
+    storage = get_storage_service()
+    if video.r2_key:
+        await storage.delete_object(video.r2_key)
+    if video.thumbnail_path:
+        await storage.delete_object(video.thumbnail_path)
 
     await db.delete(video)
     await db.commit()
@@ -340,10 +241,16 @@ def process_r2_upload(video_id: int, r2_key: str, db_url: str) -> None:
 
 
 async def _async_process_r2_upload(video_id: int, r2_key: str, db_url: str) -> None:
+    import filetype as ft
+    import httpx
+    import tempfile
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession as AS
     from sqlalchemy.orm import sessionmaker
     from backend.services.storage_service import get_storage_service
+    from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_r2_key
+    from backend.config import get_settings
 
+    settings = get_settings()
     engine = create_async_engine(db_url)
     async_session = sessionmaker(engine, class_=AS, expire_on_commit=False)
 
@@ -352,30 +259,50 @@ async def _async_process_r2_upload(video_id: int, r2_key: str, db_url: str) -> N
             video = await db.get(Video, video_id)
             if not video:
                 return
-            video.status = "completed"
-            await db.commit()
 
             storage = get_storage_service()
-            import tempfile
+            # 後端 httpx 使用 internal=True，避免 localhost:9000 在容器內無法解析
+            presigned_get = await storage.generate_presigned_get_url(r2_key, expires_in=300, internal=True)
 
-            from backend.services.thumbnail_service import generate_thumbnail, get_video_thumbnail_r2_key
+            # 1. 檢查檔案大小（HEAD request）
+            async with httpx.AsyncClient() as client:
+                head_resp = await client.head(presigned_get)
+                content_length = int(head_resp.headers.get("content-length", 0))
+
+            if content_length > settings.max_upload_size_bytes:
+                await storage.delete_object(r2_key)
+                video.status = "failed"
+                video.error_message = f"檔案超過大小限制（{settings.max_upload_size_mb}MB）"
+                await db.commit()
+                return
+
+            # 2. 下載前 262 bytes 進行 filetype 二次驗證（internal URL 供容器內 httpx 使用）
+            async with httpx.AsyncClient() as client:
+                range_resp = await client.get(presigned_get, headers={"Range": "bytes=0-261"})
+                header_bytes = await range_resp.aread()
+
+            kind = ft.match(header_bytes)
+            if kind is None or not kind.mime.startswith("video/"):
+                await storage.delete_object(r2_key)
+                video.status = "failed"
+                video.error_message = "檔案格式驗證失敗（非影片格式）"
+                await db.commit()
+                return
+
+            # 3. 驗證通過：更新狀態並觸發縮圖生成
+            video.status = "completed"
+            if content_length:
+                video.file_size = content_length
+            await db.commit()
+
             thumb_key = get_video_thumbnail_r2_key(video_id)
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
-                tmp_video_path = tmp_video.name
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_thumb:
                 tmp_thumb_path = tmp_thumb.name
 
             try:
-                presigned_get = await storage.generate_presigned_get_url(r2_key, expires_in=300)
-                import httpx
-                async with httpx.AsyncClient() as client:
-                    async with client.stream("GET", presigned_get) as response:
-                        response.raise_for_status()
-                        with open(tmp_video_path, "wb") as f:
-                            async for chunk in response.aiter_bytes():
-                                f.write(chunk)
-
-                success = generate_thumbnail(tmp_video_path, tmp_thumb_path)
+                # 直接將 presigned URL 傳給 FFmpeg（internal=True，容器內可存取）
+                ffmpeg_presigned = await storage.generate_presigned_get_url(r2_key, expires_in=600, internal=True)
+                success = generate_thumbnail(ffmpeg_presigned, tmp_thumb_path)
                 if success:
                     await storage.upload_file(tmp_thumb_path, thumb_key)
                     video = await db.get(Video, video_id)
@@ -385,13 +312,13 @@ async def _async_process_r2_upload(video_id: int, r2_key: str, db_url: str) -> N
             except Exception:
                 pass
             finally:
-                for p in (tmp_video_path, tmp_thumb_path):
-                    if os.path.exists(p):
-                        os.remove(p)
-        except Exception:
+                if os.path.exists(tmp_thumb_path):
+                    os.remove(tmp_thumb_path)
+        except Exception as e:
             video = await db.get(Video, video_id)
             if video:
                 video.status = "failed"
+                video.error_message = str(e)[:2000]
                 await db.commit()
         finally:
             await engine.dispose()
@@ -401,7 +328,9 @@ async def batch_delete_videos(db: AsyncSession, video_ids: list[int]) -> dict[st
     """批量刪除影片，回傳成功與失敗數量"""
     success = 0
     failed = 0
-    settings = get_settings()
+
+    from backend.services.storage_service import get_storage_service
+    storage = get_storage_service()
 
     for video_id in video_ids:
         video = await db.get(Video, video_id)
@@ -409,23 +338,10 @@ async def batch_delete_videos(db: AsyncSession, video_ids: list[int]) -> dict[st
             failed += 1
             continue
 
-        # R2 模式：刪除雲端物件
-        if settings.storage_backend == "r2":
-            from backend.services.storage_service import get_storage_service
-            storage = get_storage_service()
-            if video.r2_key:
-                await storage.delete_object(video.r2_key)
-            if video.thumbnail_path:
-                await storage.delete_object(video.thumbnail_path)
-        else:
-            # 本地模式：刪除本地檔案
-            from backend.services.thumbnail_service import get_video_thumbnail_path
-            video_dir = os.path.join(settings.upload_dir, str(video_id))
-            if os.path.isdir(video_dir):
-                shutil.rmtree(video_dir, ignore_errors=True)
-            thumbnail_path = get_video_thumbnail_path(video_id)
-            if os.path.exists(thumbnail_path):
-                os.remove(thumbnail_path)
+        if video.r2_key:
+            await storage.delete_object(video.r2_key)
+        if video.thumbnail_path:
+            await storage.delete_object(video.thumbnail_path)
 
         await db.delete(video)
         success += 1

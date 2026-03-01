@@ -60,6 +60,7 @@ export default function VideoDetailPage() {
   // 資料狀態
   const [video, setVideo] = useState<Video | null>(null);
   const [marks, setMarks] = useState<MarkData[]>([]);
+  const [videoSrc, setVideoSrc] = useState<string>('');
   const [currentTime, setCurrentTime] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -87,11 +88,15 @@ export default function VideoDetailPage() {
   const [toast, setToast] = useState<{ message: string; category?: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** 載入影片資料 */
+  /** 載入影片資料，並預先解析 presigned stream URL */
   const fetchVideo = useCallback(async () => {
     try {
       const res = await videoApi.get(videoId);
       setVideo(res.data);
+      if (res.data.status === 'completed') {
+        const streamRes = await videoApi.streamUrl(videoId);
+        setVideoSrc(streamRes.data.url);
+      }
     } catch {
       setError('無法載入影片資料');
     } finally {
@@ -368,8 +373,6 @@ export default function VideoDetailPage() {
     );
   }
 
-  const videoSrc = `/api/videos/${videoId}/stream`;
-
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
@@ -414,15 +417,21 @@ export default function VideoDetailPage() {
           <div className="flex-1 min-w-0">
             {/* 播放器 */}
             <div className="rounded-lg bg-black overflow-hidden">
-              <VideoPlayer
-                ref={playerRef}
-                src={videoSrc}
-                marks={playerMarks}
-                currentTime={currentTime}
-                onTimeUpdate={setCurrentTime}
-                onMarkUpdate={handleMarkUpdate}
-                recording={recording ? { startTime: recording.startTime, category: recording.category } : null}
-              />
+              {videoSrc ? (
+                <VideoPlayer
+                  ref={playerRef}
+                  src={videoSrc}
+                  marks={playerMarks}
+                  currentTime={currentTime}
+                  onTimeUpdate={setCurrentTime}
+                  onMarkUpdate={handleMarkUpdate}
+                  recording={recording ? { startTime: recording.startTime, category: recording.category } : null}
+                />
+              ) : (
+                <div className="aspect-video flex items-center justify-center text-gray-400 text-sm">
+                  {video?.status === 'completed' ? '載入串流中...' : '影片尚未準備就緒'}
+                </div>
+              )}
             </div>
 
             {/* 快捷列 */}

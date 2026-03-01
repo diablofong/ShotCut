@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # CORS（逗號分隔）
     cors_origins: str = ""
 
-    # 目錄設定
+    # 目錄設定（暫存用，上傳最終存 S3）
     upload_dir: str = "./uploads"
     clip_dir: str = "./clips"
     highlight_dir: str = "./highlights"
@@ -35,10 +35,16 @@ class Settings(BaseSettings):
     # 生產環境標誌
     is_production: bool = False
 
-    # 儲存後端（"local" 或 "r2"）
-    storage_backend: str = "local"
+    # S3-compatible 物件儲存設定（必填）
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_bucket_name: str = ""
+    s3_endpoint_url: str = ""
+    # 公開存取 URL（選填）：presigned URL 的 hostname 會替換為此值
+    # 自建版填 http://localhost:9000，雲端版（R2/S3 直接可達）留空
+    s3_public_url: str = ""
 
-    # Cloudflare R2 設定（storage_backend=r2 時必填）
+    # 向後相容：舊 R2_* 環境變數（自動映射到 s3_*）
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_bucket_name: str = ""
@@ -52,28 +58,38 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
-    def validate_r2_settings(self) -> "Settings":
-        if self.storage_backend == "r2":
+    def validate_s3_settings(self) -> "Settings":
+        # 向後相容：R2_* → S3_*（若 S3_* 未設定但 R2_* 有值）
+        if not self.s3_access_key_id and self.r2_access_key_id:
+            self.s3_access_key_id = self.r2_access_key_id
+        if not self.s3_secret_access_key and self.r2_secret_access_key:
+            self.s3_secret_access_key = self.r2_secret_access_key
+        if not self.s3_bucket_name and self.r2_bucket_name:
+            self.s3_bucket_name = self.r2_bucket_name
+        if not self.s3_endpoint_url and self.r2_endpoint_url:
+            self.s3_endpoint_url = self.r2_endpoint_url
+
+        # 驗證 S3 設定完整性（測試環境跳過：SQLite + 無 S3 設定）
+        is_test = self.database_url.startswith("sqlite")
+        if not is_test:
             missing = [
                 name for name, val in [
-                    ("R2_ACCESS_KEY_ID", self.r2_access_key_id),
-                    ("R2_SECRET_ACCESS_KEY", self.r2_secret_access_key),
-                    ("R2_BUCKET_NAME", self.r2_bucket_name),
-                    ("R2_ENDPOINT_URL", self.r2_endpoint_url),
+                    ("S3_ACCESS_KEY_ID", self.s3_access_key_id),
+                    ("S3_SECRET_ACCESS_KEY", self.s3_secret_access_key),
+                    ("S3_BUCKET_NAME", self.s3_bucket_name),
+                    ("S3_ENDPOINT_URL", self.s3_endpoint_url),
                 ]
                 if not val
             ]
             if missing:
-                raise ValueError(f"STORAGE_BACKEND=r2 時以下設定不可為空：{', '.join(missing)}")
+                raise ValueError(f"以下 S3 設定不可為空：{', '.join(missing)}")
         return self
 
     @field_validator('secret_key')
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
-        """驗證 Secret Key 強度"""
         if len(v) < 32:
             raise ValueError('SECRET_KEY 長度必須至少 32 字符')
-        # 檢查是否為常見預設值
         weak_keys = ['change-me', 'test', 'secret', 'password', 'default']
         if v.lower() in weak_keys:
             raise ValueError(f'SECRET_KEY 不可使用常見預設值: {", ".join(weak_keys)}')

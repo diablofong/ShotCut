@@ -3,16 +3,22 @@
 - 使用 SQLite in-memory 作為測試資料庫（不依賴 MariaDB）
 - 每個測試函式獨立的資料庫 session
 - 提供認證 client（admin / 一般用戶）
+- mock_storage：模擬 S3StorageService，不依賴真實 MinIO
 """
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-# 設定測試環境變數（必須在匯入 app 之前）
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+# 強制測試環境使用 SQLite（覆寫 Docker 容器的 DATABASE_URL，S3 驗證在 SQLite 模式下跳過）
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("CORS_ORIGINS", "")
+os.environ.setdefault("S3_ACCESS_KEY_ID", "test-access-key")
+os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test-secret-key")
+os.environ.setdefault("S3_BUCKET_NAME", "test-bucket")
+os.environ.setdefault("S3_ENDPOINT_URL", "http://localhost:9000")
 
 from backend.db.database import Base, get_db
 from backend.main import app
@@ -131,3 +137,46 @@ async def sample_video(db_session, regular_user) -> Video:
     await db_session.commit()
     await db_session.refresh(video)
     return video
+
+
+@pytest.fixture(scope="function")
+async def r2_video(db_session, regular_user) -> Video:
+    """擁有 r2_key 的影片（S3 上傳完成狀態）"""
+    video = Video(
+        title="S3 測試影片",
+        source_type="upload",
+        status="completed",
+        r2_key="videos/2026/test_video.mp4",
+        thumbnail_path="thumbnails/video_1_thumb.jpg",
+        owner_id=regular_user.id,
+    )
+    db_session.add(video)
+    await db_session.commit()
+    await db_session.refresh(video)
+    return video
+
+
+@pytest.fixture(scope="function")
+def mock_storage():
+    """Mock S3StorageService，測試不依賴真實 S3/MinIO"""
+    storage = MagicMock()
+    storage.upload_file = AsyncMock(return_value=True)
+    storage.delete_object = AsyncMock(return_value=True)
+    storage.generate_presigned_put_url = AsyncMock(
+        return_value="https://mock-s3.example.com/presigned-put?sig=test"
+    )
+    storage.generate_presigned_get_url = AsyncMock(
+        return_value="https://mock-s3.example.com/presigned-get?sig=test"
+    )
+
+    # video_service 內部是 local import，patch 源頭 storage_service 即可覆蓋
+    targets = [
+        "backend.services.storage_service.get_storage_service",
+        "backend.routers.videos.get_storage_service",
+    ]
+    patchers = [patch(t, return_value=storage) for t in targets]
+    for p in patchers:
+        p.start()
+    yield storage
+    for p in patchers:
+        p.stop()

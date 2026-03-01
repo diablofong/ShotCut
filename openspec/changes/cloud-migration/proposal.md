@@ -1,34 +1,23 @@
 ## Context
 
-ShotCut 目前為本地部署，影片存於應用程式伺服器本地磁碟，使用者需在同一網路環境才能存取。為支援遠端使用場景（教練與球員在家觀看），需將系統遷移至雲端。
+ShotCut 1.x 有 local 和 S3 兩套儲存路徑，導致程式碼分裂、雙重維護、前端需 build-time env。
 
-**當前狀態**：
-- 影片存於本地 `uploads/` 目錄
-- 串流透過 FastAPI FileResponse 回傳，佔用伺服器頻寬
-- 前端直接 multipart POST 影片至後端，大型影片佔用記憶體
-- 切片、精華、分享功能在雲端環境缺乏實用性
+**2.0 目標**：統一為 S3-compatible 單一路徑，自建版 = 雲端版（同程式碼、同 image、不同 .env）。
 
-**約束條件**：
-- 完全免費（Oracle Cloud Always Free + Cloudflare Free）
-- 使用人數僅 2 人，資源需求極低
-- 必須向後相容（STORAGE_BACKEND=local 維持原有行為）
-- 雲端版不需要切片、精華、分享功能
+**Phase A~F（已完成）**：StorageService 抽象層、Presigned PUT 上傳、302 redirect 串流、Feature Flag、安全修補。
 
-**相關方**：
-- 開發團隊：實施遷移
-- 使用者（2 人）：需重新上傳影片至雲端儲存
+**Phase G0/G/H（進行中）**：移除 local 後端、統一 S3_* 命名、runtime config、模組化 Docker Compose、資安補強。
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 影片儲存遷移至 Cloudflare R2（10GB 免費）
-- 前端直接透過 Presigned PUT 上傳影片至 R2
-- 串流改為 302 redirect 至 R2 Presigned GET URL
-- 新增 Feature Flag 系統控制功能模組啟用狀態
-- 本地開發使用 MinIO 模擬 R2
+- 移除 `LocalStorageService`，統一走 S3-compatible
+- `R2_*` env → `S3_*`（向後相容 validator）
+- 前端 runtime `GET /api/config`，移除 build-time `VITE_*`
+- 模組化 docker-compose + selfhosted/cloud preset
+- Graceful shutdown、startup 清理、security headers
 
 **Non-Goals:**
-- 不重構現有標記（Mark）功能
-- 不改變 JWT 認證機制
-- 不遷移資料庫（保留 MariaDB）
-- 不實作自動影片過期清理（後續版本）
+- 不重構標記功能，不改 JWT 認證
+- 不加 PostgreSQL（2.1 再評估）
+- 不加 Cloudflare Pages（同容器部署）
